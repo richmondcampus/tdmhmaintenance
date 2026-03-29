@@ -2679,26 +2679,28 @@ async function renderAnalytics() {
     t.created_at && (t.resolved_at || t.closed_at)
   );
 
-  // DEBUG — remove after fixing
-  console.log('[SLA Debug] allTickets:', allTickets.length);
-  console.log('[SLA Debug] doneTickets:', doneTickets.length);
-  console.log('[SLA Debug] SLA_CONFIG:', JSON.stringify(SLA_CONFIG));
-  doneTickets.forEach(t => {
-    const cfg = SLA_CONFIG[t.priority] || SLA_CONFIG.normal;
-    const start = parseDate(t.created_at);
-    const end   = parseDate(t.resolved_at || t.closed_at);
-    const actualMin = start && end ? (end - start)/60000 : null;
-    console.log(`[SLA Debug] ticket ${t.id} priority=${t.priority} cfg=`, cfg, `actualMin=${actualMin} slaMin=${cfg?.resolve}`);
-  });
+  // SLA debug removed
 
   let slaOnTime = 0, slaLate = 0;
   const lateList = [];
 
+  // Inline date parser — bypasses parseDate to ensure no null issues
+  const parseSLADate = iso => {
+    if (!iso || iso === 'null') return null;
+    // Supabase format: "2026-03-29 11:22:46.399+00"
+    // Normalize: space→T, +00→+00:00
+    const s = String(iso).trim()
+      .replace(' ', 'T')
+      .replace(/\+00(:00)?$/, '+00:00');
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   doneTickets.forEach(t => {
     const cfg    = slaConfig[t.priority] || slaConfig.normal;
     const slaMin = cfg ? cfg.resolve : 480;
-    const start  = parseDate(t.created_at);
-    const end    = parseDate(t.resolved_at || t.closed_at);
+    const start  = parseSLADate(t.created_at);
+    const end    = parseSLADate(t.resolved_at || t.closed_at);
     if (!start || !end || !slaMin) return;
 
     const actualMin = (end - start) / 60000;
@@ -2728,8 +2730,8 @@ async function renderAnalytics() {
     const slaMin = cfg ? cfg.resolve : 480;
     const pDone  = doneTickets.filter(t => t.priority === p);
     const pOK    = pDone.filter(t => {
-      const s = parseDate(t.created_at);
-      const e = parseDate(t.resolved_at || t.closed_at);
+      const s = parseSLADate(t.created_at);
+      const e = parseSLADate(t.resolved_at || t.closed_at);
       if (!s || !e) return false;
       return (e - s) / 60000 <= slaMin;
     }).length;
@@ -3073,10 +3075,12 @@ function getSLADeadline(ticket) {
 }
 
 function parseDate(iso) {
-  if (!iso) return null;
+  if (!iso || iso === 'null' || iso === 'undefined') return null;
   // Supabase returns "2026-03-28 06:40:59.583+00" — space instead of T
   // Safari can't parse this, so normalize it first
-  const normalized = String(iso).replace(' ', 'T').replace('+00', '+00:00');
+  // Also handle "+00" without colon → "+00:00"
+  const s = String(iso).trim();
+  const normalized = s.replace(' ', 'T').replace(/\+00$/, '+00:00').replace(/\+00\./, '+00:00.');
   const d = new Date(normalized);
   return isNaN(d.getTime()) ? null : d;
 }
