@@ -2468,8 +2468,8 @@ async function renderAnalytics() {
 
   // Avg resolution time (hours)
   const resolvedWithTime = tickets.filter(t=>t.resolved_at&&t.created_at);
-  const avgResolveH = resolvedWithTime.length
-    ? resolvedWithTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/resolvedWithTime.length
+  const avgResolveMs = resolvedWithTime.length
+    ? resolvedWithTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at)),0)/resolvedWithTime.length
     : 0;
 
   // Last 7 days
@@ -2494,7 +2494,7 @@ async function renderAnalytics() {
       <div class="sc"><div class="sc-num" style="color:var(--green2)">${totalDone}</div><div class="sc-lbl">Resolved</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--amber2)">${open}</div><div class="sc-lbl">Open</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--red2)">${urgent}</div><div class="sc-lbl">Urgent</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${fmtDuration(avgResolveH*3600000)}</div><div class="sc-lbl">Avg Resolve</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${fmtDuration(avgResolveMs)}</div><div class="sc-lbl">Avg Resolve</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--purple2)">${closeRate}%</div><div class="sc-lbl">Close Rate</div></div>`;
   }
 
@@ -2671,62 +2671,60 @@ async function renderAnalytics() {
     </div>`).join('');
 
   // ── SLA Compliance ───────────────────────────────────────────────────
-  // Computation: created_at → resolved_at OR closed_at (whichever exists)
-  // Basis: resolve_min mula sa sla_config per priority
+  // Uses allTickets (not date-filtered) so SLA always shows full history
+  // Computation: created_at → resolved_at (or closed_at) in MINUTES
   const slaConfig = SLA_CONFIG;
 
-  // Include tickets na may resolved_at OR closed_at
-  const resolvedTickets = tickets.filter(t=>
+  const doneTickets = allTickets.filter(t =>
     t.created_at && (t.resolved_at || t.closed_at)
   );
 
-  let slaOnTime=0, slaLate=0;
-  const lateList=[];
+  let slaOnTime = 0, slaLate = 0;
+  const lateList = [];
 
-  resolvedTickets.forEach(t=>{
-    const cfg = slaConfig[t.priority] || slaConfig.normal;
+  doneTickets.forEach(t => {
+    const cfg    = slaConfig[t.priority] || slaConfig.normal;
+    const slaMin = cfg ? cfg.resolve : 480;
     const start  = parseDate(t.created_at);
-    const end    = parseDate(t.resolved_at || t.closed_at); // use whichever exists
-    if (!start||!end) return;
+    const end    = parseDate(t.resolved_at || t.closed_at);
+    if (!start || !end || !slaMin) return;
 
-    const actualMs   = end - start;
-    const slaLimitMs = cfg.resolve * 60 * 1000;
-    const actualHrs  = fmtDuration(actualMs);
-    const slaHrs     = fmtSLALimit(cfg.resolve);
+    const actualMin = (end - start) / 60000;
 
-    if (actualMs <= slaLimitMs) {
+    if (actualMin <= slaMin) {
       slaOnTime++;
     } else {
       slaLate++;
       lateList.push({
-        id: t.id,
-        title: t.title,
+        id:       t.id,
+        title:    t.title,
         priority: t.priority,
-        actualH: actualHrs,
-        slaLimit: slaHrs,
-        overBy: ((actualMs - slaLimitMs)/3600000).toFixed(1)
+        actual:   fmtDuration(end - start),
+        limit:    fmtSLALimit(slaMin),
+        over:     fmtDuration((actualMin - slaMin) * 60000) + ' over'
       });
     }
   });
 
   const slaTotal = slaOnTime + slaLate;
-  const slaRate  = slaTotal ? Math.round((slaOnTime/slaTotal)*100) : 0;
+  const slaRate  = slaTotal ? Math.round((slaOnTime / slaTotal) * 100) : 0;
 
-  // Per-priority SLA breakdown
-  const priList  = ['urgent','high','normal','low'];
-  const priLabel = {urgent:'🔴 Urgent',high:'🟡 High',normal:'🔵 Normal',low:'⚪ Low'};
-  const priBreakdown = priList.map(p=>{
-    const cfg      = slaConfig[p] || slaConfig.normal;
-    const pTickets = resolvedTickets.filter(t=>t.priority===p);
-    const pOnTime  = pTickets.filter(t=>{
-      const ms = parseDate(t.resolved_at||t.closed_at) - parseDate(t.created_at);
-      return ms <= cfg.resolve*60000;
+  const priList  = ['urgent', 'high', 'normal', 'low'];
+  const priLabel = { urgent:'🔴 Urgent', high:'🟡 High', normal:'🔵 Normal', low:'⚪ Low' };
+  const priBreakdown = priList.map(p => {
+    const cfg    = slaConfig[p] || slaConfig.normal;
+    const slaMin = cfg ? cfg.resolve : 480;
+    const pDone  = doneTickets.filter(t => t.priority === p);
+    const pOK    = pDone.filter(t => {
+      const s = parseDate(t.created_at);
+      const e = parseDate(t.resolved_at || t.closed_at);
+      if (!s || !e) return false;
+      return (e - s) / 60000 <= slaMin;
     }).length;
-    const pRate    = pTickets.length ? Math.round((pOnTime/pTickets.length)*100) : null;
-    // rename to pSlaLabel to avoid conflict with outer slaHrs
-        const pSlaLabel = fmtSLALimit(cfg.resolve);
-    return {p, label:priLabel[p], total:pTickets.length, onTime:pOnTime, rate:pRate, pSlaLabel};
-  }).filter(x=>x.total>0);
+    const pRate    = pDone.length ? Math.round((pOK / pDone.length) * 100) : null;
+    const pSlaLabel = fmtSLALimit(slaMin);
+    return { p, label: priLabel[p], total: pDone.length, onTime: pOK, rate: pRate, pSlaLabel };
+  }).filter(x => x.total > 0);
 
   document.getElementById('slaCompliance').innerHTML=`
     <!-- Overall rate -->
@@ -2771,7 +2769,7 @@ async function renderAnalytics() {
               <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);">
                 <span class="badge b-${t.priority}" style="font-size:9px;">${t.priority.toUpperCase()}</span>
                 <span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.title}</span>
-                <span class="mono" style="color:var(--red2);flex-shrink:0;">+${t.overBy}h over</span>
+                <span class="mono" style="color:var(--red2);flex-shrink:0;">${t.over}</span>
               </div>`).join('')}
             ${lateList.length>10?`<div style="font-size:10px;color:var(--text3);padding-top:4px;">...at ${lateList.length-10} pa</div>`:''}
           </div>
