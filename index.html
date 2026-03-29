@@ -840,6 +840,30 @@ textarea{resize:vertical;min-height:84px;}
         <span class="badge b-new">● Live</span>
       </div>
 
+      <!-- Date Range Filter -->
+      <div class="card" style="margin-bottom:14px;padding:14px 16px;">
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);flex-shrink:0;">📅 Date Range:</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;">
+            <input type="date" id="analyticsFrom" style="flex:1;min-width:130px;max-width:160px;font-size:12px;padding:7px 10px;"
+              onchange="renderAnalytics()">
+            <span style="font-size:12px;color:var(--text3);">hanggang</span>
+            <input type="date" id="analyticsTo" style="flex:1;min-width:130px;max-width:160px;font-size:12px;padding:7px 10px;"
+              onchange="renderAnalytics()">
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-ghost btn-sm" onclick="setDateRange(7)" id="dr7">7d</button>
+            <button class="btn btn-ghost btn-sm" onclick="setDateRange(30)" id="dr30">30d</button>
+            <button class="btn btn-ghost btn-sm" onclick="setDateRange(90)" id="dr90">90d</button>
+            <button class="btn btn-ghost btn-sm" onclick="setDateRange(0)" id="drAll">Lahat</button>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="downloadReport()" style="flex-shrink:0;gap:6px;">
+            ⬇️ I-download Report
+          </button>
+        </div>
+        <div id="dateRangeLabel" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
+      </div>
+
       <!-- KPI Stats Row -->
       <div class="stats-row" id="analyticsStats"></div>
 
@@ -2396,12 +2420,39 @@ async function addMember() {
 // ══════════════════════════════════════════════════════════════
 async function renderAnalytics() {
   document.getElementById('analyticsStats').innerHTML='<div class="loading"><div class="spin"></div></div>';
-  const [{data:tickets},{data:teamRows},{data:members}] = await Promise.all([
+  const [{data:allTickets},{data:teamRows},{data:members}] = await Promise.all([
     sb.from('tickets').select('*'),
     sb.from('ticket_team').select('ticket_id,user_id'),
     sb.from('users').select('*').eq('role','maintenance')
   ]);
-  if (!tickets||!members) return;
+  if (!allTickets||!members) return;
+
+  // ── Date Range Filter ─────────────────────────────────────────────────
+  const fromEl = document.getElementById('analyticsFrom');
+  const toEl   = document.getElementById('analyticsTo');
+  const fromDate = fromEl?.value ? new Date(fromEl.value + 'T00:00:00') : null;
+  const toDate   = toEl?.value   ? new Date(toEl.value   + 'T23:59:59') : null;
+
+  // Filter tickets by created_at date range
+  const tickets = allTickets.filter(t=>{
+    if (!t.created_at) return true;
+    const d = parseDate(t.created_at);
+    if (fromDate && d < fromDate) return false;
+    if (toDate   && d > toDate)   return false;
+    return true;
+  });
+
+  // Update date range label
+  const labelEl = document.getElementById('dateRangeLabel');
+  if (labelEl) {
+    if (fromDate || toDate) {
+      const f = fromDate ? fromDate.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}) : 'Simula';
+      const t2 = toDate  ? toDate.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})  : 'Ngayon';
+      labelEl.textContent = `Showing ${tickets.length} ticket${tickets.length!==1?'s':''} mula ${f} hanggang ${t2}`;
+    } else {
+      labelEl.textContent = `Showing lahat ng ${tickets.length} ticket${tickets.length!==1?'s':''}`;
+    }
+  }
 
   // ── Core metrics ─────────────────────────────────────────────────────
   const total = tickets.length;
@@ -2618,26 +2669,30 @@ async function renderAnalytics() {
     </div>`).join('');
 
   // ── SLA Compliance ───────────────────────────────────────────────────
-  // Computation: created_at → resolved_at (kung kailan natapos ng maintenance)
+  // Computation: created_at → resolved_at OR closed_at (whichever exists)
   // Basis: resolve_min mula sa sla_config per priority
   const slaConfig = SLA_CONFIG;
 
-  // Only include tickets na may resolved_at (natapos na)
-  const resolvedTickets = tickets.filter(t=>t.resolved_at && t.created_at);
+  // Include tickets na may resolved_at OR closed_at
+  const resolvedTickets = tickets.filter(t=>
+    t.created_at && (t.resolved_at || t.closed_at)
+  );
 
   let slaOnTime=0, slaLate=0;
   const lateList=[];
 
   resolvedTickets.forEach(t=>{
     const cfg = slaConfig[t.priority] || slaConfig.normal;
-    const start = parseDate(t.created_at);
-    const end   = parseDate(t.resolved_at);
+    const start  = parseDate(t.created_at);
+    const end    = parseDate(t.resolved_at || t.closed_at); // use whichever exists
     if (!start||!end) return;
 
-    const actualMs  = end - start;                  // actual time taken
-    const slaLimitMs = cfg.resolve_min * 60 * 1000; // SLA limit in ms
-    const actualH   = (actualMs/3600000).toFixed(1);
-    const slaH      = (cfg.resolve_min/60).toFixed(0);
+    const actualMs   = end - start;
+    const slaLimitMs = cfg.resolve_min * 60 * 1000;
+    const actualHrs  = (actualMs/3600000).toFixed(1);
+    const slaHrs     = cfg.resolve_min >= 1440
+      ? `${(cfg.resolve_min/1440).toFixed(0)}d`
+      : `${(cfg.resolve_min/60).toFixed(0)}h`;
 
     if (actualMs <= slaLimitMs) {
       slaOnTime++;
@@ -2647,8 +2702,8 @@ async function renderAnalytics() {
         id: t.id,
         title: t.title,
         priority: t.priority,
-        actualH,
-        slaH,
+        actualH: actualHrs,
+        slaLimit: slaHrs,
         overBy: ((actualMs - slaLimitMs)/3600000).toFixed(1)
       });
     }
@@ -2658,22 +2713,23 @@ async function renderAnalytics() {
   const slaRate  = slaTotal ? Math.round((slaOnTime/slaTotal)*100) : 0;
 
   // Per-priority SLA breakdown
-  const priList = ['urgent','high','normal','low'];
+  const priList  = ['urgent','high','normal','low'];
   const priLabel = {urgent:'🔴 Urgent',high:'🟡 High',normal:'🔵 Normal',low:'⚪ Low'};
   const priBreakdown = priList.map(p=>{
-    const cfg = slaConfig[p]||slaConfig.normal;
+    const cfg      = slaConfig[p] || slaConfig.normal;
     const pTickets = resolvedTickets.filter(t=>t.priority===p);
     const pOnTime  = pTickets.filter(t=>{
-      const ms = parseDate(t.resolved_at) - parseDate(t.created_at);
+      const ms = parseDate(t.resolved_at||t.closed_at) - parseDate(t.created_at);
       return ms <= cfg.resolve_min*60000;
     }).length;
-    const pRate = pTickets.length ? Math.round((pOnTime/pTickets.length)*100) : null;
-    const slaH  = cfg.resolve_min >= 1440
+    const pRate    = pTickets.length ? Math.round((pOnTime/pTickets.length)*100) : null;
+    // rename to pSlaLabel to avoid conflict with outer slaHrs
+    const pSlaLabel = cfg.resolve_min >= 1440
       ? `${(cfg.resolve_min/1440).toFixed(0)}d`
       : cfg.resolve_min >= 60
         ? `${(cfg.resolve_min/60).toFixed(0)}h`
         : `${cfg.resolve_min}m`;
-    return {p, label:priLabel[p], total:pTickets.length, onTime:pOnTime, rate:pRate, slaH};
+    return {p, label:priLabel[p], total:pTickets.length, onTime:pOnTime, rate:pRate, pSlaLabel};
   }).filter(x=>x.total>0);
 
   document.getElementById('slaCompliance').innerHTML=`
@@ -2710,7 +2766,7 @@ async function renderAnalytics() {
           </div>
           <div style="font-size:11px;color:var(--text2);font-family:'JetBrains Mono',monospace;width:60px;text-align:right;">${x.onTime}/${x.total}</div>
           <div style="font-size:10px;color:var(--text3);width:30px;text-align:right;">${x.rate??'—'}%</div>
-          <div style="font-size:10px;color:var(--text3);width:50px;text-align:right;">SLA: ${x.slaH}</div>
+          <div style="font-size:10px;color:var(--text3);width:50px;text-align:right;">SLA: ${x.pSlaLabel}</div>
         </div>`).join('')}
     </div>
 
@@ -2794,6 +2850,192 @@ if (window.location.protocol === 'file:') {
   const bh = banner.offsetHeight || 48;
   document.querySelector('.topbar') && (document.querySelector('.topbar').style.top = bh+'px');
   document.getElementById('serverInstructions').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════
+// DATE RANGE + REPORT DOWNLOAD
+// ══════════════════════════════════════════════════════════════
+
+function setDateRange(days) {
+  const fromEl = document.getElementById('analyticsFrom');
+  const toEl   = document.getElementById('analyticsTo');
+  if (!fromEl||!toEl) return;
+
+  // Highlight active button
+  ['dr7','dr30','dr90','drAll'].forEach(id=>{
+    const btn = document.getElementById(id);
+    if (btn) { btn.classList.remove('btn-primary'); btn.classList.add('btn-ghost'); }
+  });
+  const activeId = days===7?'dr7':days===30?'dr30':days===90?'dr90':'drAll';
+  const activeBtn = document.getElementById(activeId);
+  if (activeBtn) { activeBtn.classList.remove('btn-ghost'); activeBtn.classList.add('btn-primary'); }
+
+  if (days===0) {
+    // All time — clear filters
+    fromEl.value = '';
+    toEl.value   = '';
+  } else {
+    const to   = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+    fromEl.value = from.toISOString().slice(0,10);
+    toEl.value   = to.toISOString().slice(0,10);
+  }
+  renderAnalytics();
+}
+
+async function downloadReport() {
+  // Gather current analytics data for the report
+  const fromEl = document.getElementById('analyticsFrom');
+  const toEl   = document.getElementById('analyticsTo');
+  const fromVal = fromEl?.value || '';
+  const toVal   = toEl?.value   || '';
+  const label   = document.getElementById('dateRangeLabel')?.textContent || '';
+
+  const {data:tickets} = await sb.from('tickets').select('*');
+  const {data:teamRows} = await sb.from('ticket_team').select('ticket_id,user_id');
+  const {data:members}  = await sb.from('users').select('*').eq('role','maintenance');
+  if (!tickets) return;
+
+  // Apply same date filter
+  const fromDate = fromVal ? new Date(fromVal+'T00:00:00') : null;
+  const toDate   = toVal   ? new Date(toVal+'T23:59:59')   : null;
+  const filtered = tickets.filter(t=>{
+    if (!t.created_at) return true;
+    const d = parseDate(t.created_at);
+    if (fromDate && d < fromDate) return false;
+    if (toDate   && d > toDate)   return false;
+    return true;
+  });
+
+  const total     = filtered.length;
+  const done      = filtered.filter(t=>t.status==='closed'||t.status==='resolved').length;
+  const open      = filtered.filter(t=>t.status==='open').length;
+  const urgent    = filtered.filter(t=>t.priority==='urgent').length;
+  const closeRate = total ? Math.round((done/total)*100) : 0;
+  const withTime  = filtered.filter(t=>t.resolved_at&&t.created_at);
+  const avgH      = withTime.length
+    ? (withTime.reduce((a,t)=>a+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/withTime.length).toFixed(1)
+    : '—';
+
+  // Member stats
+  const memberRows = (members||[]).map(m=>{
+    const ids  = (teamRows||[]).filter(r=>r.user_id===m.id).map(r=>r.ticket_id);
+    const myT  = filtered.filter(t=>ids.includes(t.id));
+    const myD  = myT.filter(t=>t.status==='closed'||t.status==='resolved').length;
+    const wT   = myT.filter(t=>t.resolved_at&&t.created_at);
+    const mAvg = wT.length?(wT.reduce((a,t)=>a+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/wT.length).toFixed(1):'—';
+    return `<tr>
+      <td>${m.name||'—'}</td>
+      <td>${m.spec||'—'}</td>
+      <td style="text-align:center;">${myT.length}</td>
+      <td style="text-align:center;color:green;font-weight:700;">${myD}</td>
+      <td style="text-align:center;">${mAvg}h</td>
+    </tr>`;
+  }).join('');
+
+  // All tickets table
+  const ticketRows = filtered.map(t=>`<tr>
+    <td style="font-family:monospace;font-size:11px;">${t.id}</td>
+    <td>${t.title||'—'}</td>
+    <td>${t.dept||'—'}</td>
+    <td>${t.cat||'—'}</td>
+    <td style="text-transform:capitalize;">${t.priority}</td>
+    <td style="text-transform:capitalize;">${t.status}</td>
+    <td style="font-size:11px;">${t.created_at?new Date(t.created_at).toLocaleString('en-PH'):'—'}</td>
+    <td style="font-size:11px;">${t.resolved_at?new Date(t.resolved_at).toLocaleString('en-PH'):t.closed_at?new Date(t.closed_at).toLocaleString('en-PH'):'—'}</td>
+  </tr>`).join('');
+
+  const dateLabel = fromVal||toVal
+    ? `${fromVal||'Simula'} — ${toVal||'Ngayon'}`
+    : 'Lahat ng Tickets';
+
+  const now = new Date().toLocaleString('en-PH',{dateStyle:'full',timeStyle:'short'});
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>TDMH Maintenance Report</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:32px;color:#1a1a2e;font-size:13px;}
+  h1{font-size:22px;color:#0066ff;margin-bottom:4px;}
+  h2{font-size:15px;color:#333;margin:24px 0 10px;border-bottom:2px solid #eee;padding-bottom:6px;}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;}
+  .meta{font-size:11px;color:#777;text-align:right;}
+  .kpi{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;}
+  .kpi-box{background:#f5f7fc;border:1px solid #dde3f2;border-radius:10px;padding:14px 18px;min-width:120px;text-align:center;}
+  .kpi-num{font-size:28px;font-weight:700;color:#0066ff;}
+  .kpi-lbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-top:3px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{background:#f5f7fc;color:#555;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #dde3f2;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  td{padding:8px 10px;border-bottom:1px solid #eee;vertical-align:top;}
+  tr:hover td{background:#fafbff;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
+  .b-urgent{background:#ffe5e8;color:#c00;}
+  .b-high{background:#fff3cd;color:#856404;}
+  .b-normal{background:#e8f4f8;color:#004085;}
+  .b-low{background:#f0f0f0;color:#666;}
+  .b-closed,.b-resolved{color:green;}
+  .b-open{color:orange;}
+  .footer{margin-top:32px;font-size:10px;color:#aaa;text-align:center;border-top:1px solid #eee;padding-top:12px;}
+  @media print{body{margin:16px;}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>🏥 TDMH Maintenance Hub</h1>
+    <div style="font-size:13px;color:#555;">Taytay Doctors Multispecialty Hospital</div>
+    <div style="font-size:12px;color:#888;margin-top:4px;">Performance Report — ${dateLabel}</div>
+  </div>
+  <div class="meta">
+    Generated: ${now}<br>
+    Generated by: ${CU?.name||'Admin'}<br>
+    System: TDMH Maintenance Hub
+  </div>
+</div>
+
+<h2>📊 Key Performance Indicators</h2>
+<div class="kpi">
+  <div class="kpi-box"><div class="kpi-num">${total}</div><div class="kpi-lbl">Total Tickets</div></div>
+  <div class="kpi-box"><div class="kpi-num" style="color:green;">${done}</div><div class="kpi-lbl">Resolved/Closed</div></div>
+  <div class="kpi-box"><div class="kpi-num" style="color:orange;">${open}</div><div class="kpi-lbl">Open</div></div>
+  <div class="kpi-box"><div class="kpi-num" style="color:red;">${urgent}</div><div class="kpi-lbl">Urgent</div></div>
+  <div class="kpi-box"><div class="kpi-num">${avgH}h</div><div class="kpi-lbl">Avg Resolve Time</div></div>
+  <div class="kpi-box"><div class="kpi-num" style="color:${closeRate>=80?'green':closeRate>=50?'orange':'red'};">${closeRate}%</div><div class="kpi-lbl">Close Rate</div></div>
+</div>
+
+<h2>🏆 Team Performance</h2>
+<table>
+  <thead><tr><th>Name</th><th>Specialization</th><th>Assigned</th><th>Resolved</th><th>Avg Time</th></tr></thead>
+  <tbody>${memberRows||'<tr><td colspan="5" style="color:#aaa;text-align:center;">No data</td></tr>'}</tbody>
+</table>
+
+<h2>🎫 Ticket List (${filtered.length})</h2>
+<table>
+  <thead><tr><th>Ticket ID</th><th>Title</th><th>Department</th><th>Category</th><th>Priority</th><th>Status</th><th>Submitted</th><th>Resolved/Closed</th></tr></thead>
+  <tbody>${ticketRows||'<tr><td colspan="8" style="color:#aaa;text-align:center;">No tickets in this range</td></tr>'}</tbody>
+</table>
+
+<div class="footer">
+  TDMH Maintenance Hub — Taytay Doctors Multispecialty Hospital<br>
+  This report is confidential and for internal use only.
+</div>
+
+<script>window.onload=()=>window.print();<\/script>
+</body>
+</html>`;
+
+  // Open in new tab — user can Print → Save as PDF
+  const blob = new Blob([html], {type:'text/html'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.target   = '_blank';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('success','📄 Report Generated!','Mag-click ng Print → Save as PDF para i-save.');
 }
 
 function stLbl(s){return{open:'Open',claimed:'Claimed',teamed:'Teamed Up',resolved:'Pending Confirmation',closed:'Closed'}[s]||s;}
