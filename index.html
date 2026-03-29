@@ -2431,10 +2431,11 @@ async function renderAnalytics() {
   // ── Date Range Filter ─────────────────────────────────────────────────
   const fromEl = document.getElementById('analyticsFrom');
   const toEl   = document.getElementById('analyticsTo');
-  const fromDate = fromEl?.value ? new Date(fromEl.value + 'T00:00:00') : null;
-  const toDate   = toEl?.value   ? new Date(toEl.value   + 'T23:59:59') : null;
+  // Use UTC midnight so it matches Supabase timestamps (stored as UTC)
+  const fromDate = fromEl?.value ? new Date(fromEl.value + 'T00:00:00Z') : null;
+  const toDate   = toEl?.value   ? new Date(toEl.value   + 'T23:59:59Z') : null;
 
-  // Filter tickets by created_at date range
+  // Filter tickets by created_at date range (both in UTC)
   const tickets = allTickets.filter(t=>{
     if (!t.created_at) return true;
     const d = parseDate(t.created_at);
@@ -2860,21 +2861,23 @@ function setDateRange(days) {
   const activeBtn = document.getElementById(activeId);
   if (activeBtn) { activeBtn.classList.remove('btn-ghost'); activeBtn.classList.add('btn-primary'); }
 
-  const today = new Date().toISOString().slice(0,10);
+  // Use UTC date to match Supabase timestamps
+  const now = new Date();
+  const todayUTC = now.toISOString().slice(0,10);
 
   if (days===0) {
     // All time — clear filters
     fromEl.value = '';
     toEl.value   = '';
   } else if (days===1) {
-    // Today only
-    fromEl.value = today;
-    toEl.value   = today;
+    // Today only — use UTC today
+    fromEl.value = todayUTC;
+    toEl.value   = todayUTC;
   } else {
     const from = new Date();
-    from.setDate(from.getDate() - days);
+    from.setUTCDate(from.getUTCDate() - days);
     fromEl.value = from.toISOString().slice(0,10);
-    toEl.value   = today;
+    toEl.value   = todayUTC;
   }
   renderAnalytics();
 }
@@ -2893,8 +2896,8 @@ async function downloadReport() {
   if (!tickets) return;
 
   // Apply same date filter
-  const fromDate = fromVal ? new Date(fromVal+'T00:00:00') : null;
-  const toDate   = toVal   ? new Date(toVal+'T23:59:59')   : null;
+  const fromDate = fromVal ? new Date(fromVal+'T00:00:00Z') : null;
+  const toDate   = toVal   ? new Date(toVal+'T23:59:59Z')   : null;
   const filtered = tickets.filter(t=>{
     if (!t.created_at) return true;
     const d = parseDate(t.created_at);
