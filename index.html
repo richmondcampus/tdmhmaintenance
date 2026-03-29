@@ -2679,6 +2679,18 @@ async function renderAnalytics() {
     t.created_at && (t.resolved_at || t.closed_at)
   );
 
+  // DEBUG — remove after fixing
+  console.log('[SLA Debug] allTickets:', allTickets.length);
+  console.log('[SLA Debug] doneTickets:', doneTickets.length);
+  console.log('[SLA Debug] SLA_CONFIG:', JSON.stringify(SLA_CONFIG));
+  doneTickets.forEach(t => {
+    const cfg = SLA_CONFIG[t.priority] || SLA_CONFIG.normal;
+    const start = parseDate(t.created_at);
+    const end   = parseDate(t.resolved_at || t.closed_at);
+    const actualMin = start && end ? (end - start)/60000 : null;
+    console.log(`[SLA Debug] ticket ${t.id} priority=${t.priority} cfg=`, cfg, `actualMin=${actualMin} slaMin=${cfg?.resolve}`);
+  });
+
   let slaOnTime = 0, slaLate = 0;
   const lateList = [];
 
@@ -3037,22 +3049,18 @@ async function downloadReport() {
 function stLbl(s){return{open:'Open',claimed:'Claimed',teamed:'Teamed Up',resolved:'Pending Confirmation',closed:'Closed'}[s]||s;}
 
 // Smart time formatter — shows minutes if < 60min, hours+min if >= 60min
+// Duration formatter — pure minutes always
 function fmtDuration(ms) {
   if (!ms || ms < 0) return '—';
   const totalMin = Math.round(ms / 60000);
   if (totalMin < 1) return '< 1m';
-  if (totalMin < 60) return totalMin + 'm';
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m > 0 ? h + 'h ' + m + 'm' : h + 'h';
+  return totalMin + 'min';
 }
 
-// SLA limit formatter
+// SLA limit formatter — pure minutes always
 function fmtSLALimit(minutes) {
   if (!minutes) return '—';
-  if (minutes < 60) return minutes + 'm';
-  if (minutes < 1440) return (minutes/60).toFixed(0) + 'h';
-  return (minutes/1440).toFixed(0) + 'd';
+  return minutes + 'min';
 }
 function timeAgo(iso){if(!iso)return'';const d=(Date.now()-new Date(iso))/1000;if(d<60)return'just now';if(d<3600)return`${Math.floor(d/60)}m ago`;if(d<86400)return`${Math.floor(d/3600)}h ago`;return`${Math.floor(d/86400)}d ago`;}
 
