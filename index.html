@@ -852,6 +852,7 @@ textarea{resize:vertical;min-height:84px;}
               onchange="renderAnalytics()">
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-ghost btn-sm" onclick="setDateRange(1)" id="dr1">Today</button>
             <button class="btn btn-ghost btn-sm" onclick="setDateRange(7)" id="dr7">7d</button>
             <button class="btn btn-ghost btn-sm" onclick="setDateRange(30)" id="dr30">30d</button>
             <button class="btn btn-ghost btn-sm" onclick="setDateRange(90)" id="dr90">90d</button>
@@ -2756,18 +2757,13 @@ async function renderAnalytics() {
     <!-- Per-priority breakdown -->
     <div style="margin-bottom:14px;">
       <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">Per Priority</div>
-      ${priBreakdown.map(x=>`
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-          <div style="font-size:12px;width:80px;flex-shrink:0;">${x.label}</div>
-          <div style="flex:1;">
-            <div class="prog-bar" style="height:6px;">
-              <div class="prog-fill" style="width:${x.rate??0}%;background:${x.rate===100?'var(--green)':x.rate>=50?'var(--amber)':'var(--red)'};"></div>
-            </div>
-          </div>
-          <div style="font-size:11px;color:var(--text2);font-family:'JetBrains Mono',monospace;width:60px;text-align:right;">${x.onTime}/${x.total}</div>
-          <div style="font-size:10px;color:var(--text3);width:30px;text-align:right;">${x.rate??'—'}%</div>
-          <div style="font-size:10px;color:var(--text3);width:50px;text-align:right;">SLA: ${x.pSlaLabel}</div>
-        </div>`).join('')}
+      ${priBreakdown.map(x=>'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+        + '<div style="font-size:12px;width:80px;flex-shrink:0;">' + x.label + '</div>'
+        + '<div style="flex:1;"><div class="prog-bar" style="height:6px;"><div class="prog-fill" style="width:' + (x.rate??0) + '%;background:' + (x.rate===100?'var(--green)':x.rate>=50?'var(--amber)':'var(--red)') + ';"></div></div></div>'
+        + '<div style="font-size:11px;color:var(--text2);font-family:JetBrains Mono,monospace;width:60px;text-align:right;">' + x.onTime + '/' + x.total + '</div>'
+        + '<div style="font-size:10px;color:var(--text3);width:30px;text-align:right;">' + (x.rate??'—') + '%</div>'
+        + '<div style="font-size:10px;color:var(--text3);width:54px;text-align:right;">SLA: ' + x.pSlaLabel + '</div>'
+        + '</div>').join('')}
     </div>
 
     <!-- Result message -->
@@ -2862,24 +2858,29 @@ function setDateRange(days) {
   if (!fromEl||!toEl) return;
 
   // Highlight active button
-  ['dr7','dr30','dr90','drAll'].forEach(id=>{
+  ['dr1','dr7','dr30','dr90','drAll'].forEach(id=>{
     const btn = document.getElementById(id);
     if (btn) { btn.classList.remove('btn-primary'); btn.classList.add('btn-ghost'); }
   });
-  const activeId = days===7?'dr7':days===30?'dr30':days===90?'dr90':'drAll';
+  const activeId = days===1?'dr1':days===7?'dr7':days===30?'dr30':days===90?'dr90':'drAll';
   const activeBtn = document.getElementById(activeId);
   if (activeBtn) { activeBtn.classList.remove('btn-ghost'); activeBtn.classList.add('btn-primary'); }
+
+  const today = new Date().toISOString().slice(0,10);
 
   if (days===0) {
     // All time — clear filters
     fromEl.value = '';
     toEl.value   = '';
+  } else if (days===1) {
+    // Today only
+    fromEl.value = today;
+    toEl.value   = today;
   } else {
-    const to   = new Date();
     const from = new Date();
     from.setDate(from.getDate() - days);
     fromEl.value = from.toISOString().slice(0,10);
-    toEl.value   = to.toISOString().slice(0,10);
+    toEl.value   = today;
   }
   renderAnalytics();
 }
