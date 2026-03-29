@@ -907,6 +907,7 @@ let CU = null;           // current user object
 let MAINT_MEMBERS = [];  // cached maintenance staff
 let NOTIFS = [];         // in-session notifications
 let ALL_USERS = {};      // id → user map for display
+let OPEN_COUNT = 0;      // cached open ticket count for nav badge
 let SLA_CONFIG = {       // minutes per priority — loaded from DB
   urgent: { respond:15,  arrive:30,   resolve:120  },
   high:   { respond:60,  arrive:120,  resolve:480  },
@@ -1188,8 +1189,9 @@ function buildNav() {
   else if (role==='maintenance') tabs=[{id:'mytickets',lbl:'🔧',name:'My Tickets'},{id:'tickets',lbl:'🎫',name:'All Tickets'},{id:'analytics',lbl:'📈',name:'My Stats'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
   else tabs=[{id:'tickets',lbl:'🎫',name:'My Requests'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
 
-  const open = TICKETS.filter(t=>t.status==='open').length;
-  const unread = NOTIFS.filter(n=>!n.read).length;
+  // TICKETS is loaded async from Supabase — safe fallback to 0
+  const open = (typeof OPEN_COUNT !== 'undefined') ? OPEN_COUNT : 0;
+  const unread = (typeof NOTIFS !== 'undefined') ? NOTIFS.filter(n=>!n.read).length : 0;
 
   // ── Desktop top nav ─────────────────────────────────────
   document.getElementById('deskNav').innerHTML = tabs.map(t=>`
@@ -1281,6 +1283,9 @@ async function renderTickets() {
   if (CU.role==='department') query=query.eq('dept',CU.dept);
   const {data:tickets}=await query;
   if (!tickets){document.getElementById('ticketList').innerHTML='<div class="empty"><div class="empty-ico">⚠️</div><p>Error loading tickets.</p></div>';return;}
+  // Update open count for nav badge
+  OPEN_COUNT = tickets.filter(t=>t.status==='open').length;
+  buildNav();
 
   const s=(document.getElementById('srch')?.value||'').toLowerCase();
   const stF=document.getElementById('stF')?.value||'';
