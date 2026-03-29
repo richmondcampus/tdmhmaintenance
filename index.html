@@ -63,8 +63,6 @@ html,body{
   font-size:14px;
   line-height:1.6;
   overscroll-behavior:none;
-  overflow-x:hidden;
-  max-width:100vw;
 }
 
 /* Subtle dot-grid background texture */
@@ -225,9 +223,10 @@ html,body{
 
 /* ── LAYOUT ──────────────────────────────────── */
 .app-wrap{display:flex;flex-direction:column;min-height:100vh;}
-.main-area{flex:1;padding:20px;max-width:1100px;margin:0 auto;width:100%;padding-bottom:88px;}
+.main-area{flex:1;padding:20px;max-width:1100px;margin:0 auto;width:100%;padding-bottom:88px;overflow-y:auto;}
 @media(min-width:640px){.bottom-nav{display:none!important;}.main-area{padding-bottom:28px;}}
 @media(max-width:639px){
+  html,body{overflow-x:hidden;max-width:100vw;}
   .desk-nav{display:none!important;}
   .bottom-nav{display:flex!important;}
   .main-area{padding:12px;}
@@ -833,21 +832,75 @@ textarea{resize:vertical;min-height:84px;}
 
     <!-- ANALYTICS -->
     <div class="page" id="pg-analytics">
-      <div class="sec-head"><div class="sec-title">Performance Analytics</div><span class="badge b-new">● Live</span></div>
-      <div class="stats-row" id="analyticsStats"></div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">🏆 Leaderboard</div></div>
-        <div style="overflow-x:auto;"><table class="ptable" id="leaderTable"></table></div>
+      <div class="sec-head">
+        <div>
+          <div class="sec-title">Performance Analytics</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Live data mula sa Supabase</div>
+        </div>
+        <span class="badge b-new">● Live</span>
       </div>
+
+      <!-- KPI Stats Row -->
+      <div class="stats-row" id="analyticsStats"></div>
+
+      <!-- Ticket Status Breakdown -->
+      <div class="card" id="statusBreakdownCard">
+        <div class="card-head">
+          <div><div class="card-title">📊 Ticket Status Overview</div><div class="card-sub">Kasalukuyang estado ng lahat ng tickets</div></div>
+        </div>
+        <div id="statusBreakdown"></div>
+      </div>
+
+      <!-- Weekly Activity Chart -->
+      <div class="card">
+        <div class="card-head">
+          <div><div class="card-title">📈 Weekly Activity</div><div class="card-sub">Tickets submitted at resolved (last 7 days)</div></div>
+        </div>
+        <div id="weeklyChart" style="margin-top:8px;"></div>
+      </div>
+
+      <!-- Priority Heatmap + Resolution Rate -->
       <div class="g2">
         <div class="card">
-          <div class="card-head"><div class="card-title">Avg. Resolution Time</div><div class="card-sub">Hours — lower is better</div></div>
-          <div class="barchart" id="speedChart"></div>
+          <div class="card-head"><div class="card-title">🎯 Priority Breakdown</div><div class="card-sub">Lahat ng tickets</div></div>
+          <div id="priorityBreakdown"></div>
         </div>
         <div class="card">
-          <div class="card-head"><div class="card-title">Tickets by Department</div></div>
+          <div class="card-head"><div class="card-title">⚡ Resolution Rate</div><div class="card-sub">% ng natapos na tickets</div></div>
+          <div id="resolutionRate"></div>
+        </div>
+      </div>
+
+      <!-- Leaderboard -->
+      <div class="card">
+        <div class="card-head">
+          <div><div class="card-title">🏆 Team Leaderboard</div><div class="card-sub">Pinaka-maraming natapos</div></div>
+        </div>
+        <div style="overflow-x:auto;"><table class="ptable" id="leaderTable"></table></div>
+      </div>
+
+      <!-- Speed Chart + Dept Chart -->
+      <div class="g2">
+        <div class="card">
+          <div class="card-head"><div class="card-title">⏱ Avg. Resolution Time</div><div class="card-sub">Hours — mas mababa mas magaling</div></div>
+          <div class="barchart" style="height:100px;" id="speedChart"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">🏥 Tickets by Department</div></div>
           <div id="deptBars"></div>
         </div>
+      </div>
+
+      <!-- Category breakdown -->
+      <div class="card">
+        <div class="card-head"><div class="card-title">🔧 Tickets by Category</div><div class="card-sub">Anong uri ng problema ang madalas</div></div>
+        <div id="categoryBars"></div>
+      </div>
+
+      <!-- SLA compliance -->
+      <div class="card" id="slaCard">
+        <div class="card-head"><div class="card-title">🕐 SLA Compliance</div><div class="card-sub">Ilang ticket ang natapos sa loob ng SLA</div></div>
+        <div id="slaCompliance"></div>
       </div>
     </div>
 
@@ -2343,76 +2396,256 @@ async function addMember() {
 // ══════════════════════════════════════════════════════════════
 async function renderAnalytics() {
   document.getElementById('analyticsStats').innerHTML='<div class="loading"><div class="spin"></div></div>';
-  const {data:tickets}=await sb.from('tickets').select('*');
-  const {data:teamRows}=await sb.from('ticket_team').select('ticket_id,user_id');
-  const {data:members}=await sb.from('users').select('*').eq('role','maintenance');
+  const [{data:tickets},{data:teamRows},{data:members}] = await Promise.all([
+    sb.from('tickets').select('*'),
+    sb.from('ticket_team').select('ticket_id,user_id'),
+    sb.from('users').select('*').eq('role','maintenance')
+  ]);
   if (!tickets||!members) return;
 
-  const totalR=tickets.filter(t=>t.status==='resolved'||t.status==='closed').length;
-  const closeRate=tickets.length?Math.round((totalR/tickets.length)*100):0;
+  // ── Core metrics ─────────────────────────────────────────────────────
+  const total = tickets.length;
+  const open = tickets.filter(t=>t.status==='open').length;
+  const active = tickets.filter(t=>t.status==='claimed'||t.status==='teamed').length;
+  const resolved = tickets.filter(t=>t.status==='resolved').length;
+  const closed = tickets.filter(t=>t.status==='closed').length;
+  const totalDone = resolved + closed;
+  const closeRate = total ? Math.round((totalDone/total)*100) : 0;
+  const urgent = tickets.filter(t=>t.priority==='urgent'&&t.status!=='closed'&&t.status!=='resolved').length;
 
+  // Avg resolution time (hours)
+  const resolvedWithTime = tickets.filter(t=>t.resolved_at&&t.created_at);
+  const avgResolveH = resolvedWithTime.length
+    ? resolvedWithTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/resolvedWithTime.length
+    : 0;
+
+  // Last 7 days
+  const now = new Date();
+  const last7 = tickets.filter(t=>parseDate(t.created_at)>new Date(now-7*86400000)).length;
+
+  // ── KPI Stats ────────────────────────────────────────────────────────
   if (CU.role==='maintenance') {
     const myIds=(teamRows||[]).filter(r=>r.user_id===CU.id).map(r=>r.ticket_id);
     const myT=tickets.filter(t=>myIds.includes(t.id));
-    const myR=myT.filter(t=>t.status==='resolved'||t.status==='closed').length;
-    const myAvg=myT.filter(t=>t.resolved_at&&t.created_at).reduce((acc,t)=>{
-      return acc+(new Date(t.resolved_at)-new Date(t.created_at))/3600000;
-    },0)/(myR||1);
+    const myDone=myT.filter(t=>t.status==='resolved'||t.status==='closed').length;
+    const myActive=myT.filter(t=>t.status==='open'||t.status==='claimed'||t.status==='teamed').length;
+    const myAvg=myT.filter(t=>t.resolved_at&&t.created_at).reduce((acc,t,_,arr)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000/arr.length,0);
     document.getElementById('analyticsStats').innerHTML=`
-      <div class="sc"><div class="sc-num" style="color:var(--green2)">${myR}</div><div class="sc-lbl">My Resolved</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--green2)">${myDone}</div><div class="sc-lbl">My Resolved</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--accent2)">${myAvg.toFixed(1)}h</div><div class="sc-lbl">Avg Time</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--amber2)">${myT.length}</div><div class="sc-lbl">Total Assigned</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--purple2)">${myT.filter(t=>t.status==='open'||t.status==='claimed'||t.status==='teamed').length}</div><div class="sc-lbl">Active</div></div>`;
+      <div class="sc"><div class="sc-num" style="color:var(--amber2)">${myActive}</div><div class="sc-lbl">Active</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--purple2)">${myT.length}</div><div class="sc-lbl">Total Assigned</div></div>`;
   } else {
     document.getElementById('analyticsStats').innerHTML=`
-      <div class="sc"><div class="sc-num" style="color:var(--green2)">${totalR}</div><div class="sc-lbl">Total Resolved</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${tickets.length}</div><div class="sc-lbl">All Tickets</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--amber2)">${members.length}</div><div class="sc-lbl">Team Size</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--text)">${total}</div><div class="sc-lbl">Total Tickets</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--green2)">${totalDone}</div><div class="sc-lbl">Resolved</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--amber2)">${open}</div><div class="sc-lbl">Open</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--red2)">${urgent}</div><div class="sc-lbl">Urgent</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${avgResolveH.toFixed(1)}h</div><div class="sc-lbl">Avg Resolve</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--purple2)">${closeRate}%</div><div class="sc-lbl">Close Rate</div></div>`;
   }
 
-  // Leaderboard
+  // ── Status Breakdown ─────────────────────────────────────────────────
+  const statuses = [
+    {label:'Open', count:open, color:'var(--amber)', icon:'📢'},
+    {label:'Active', count:active, color:'var(--accent)', icon:'🔧'},
+    {label:'Resolved', count:resolved, color:'var(--teal)', icon:'✅'},
+    {label:'Closed', count:closed, color:'var(--green)', icon:'🔒'},
+  ];
+  const maxSt = Math.max(...statuses.map(s=>s.count),1);
+  document.getElementById('statusBreakdown').innerHTML = statuses.map(s=>`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <div style="font-size:18px;width:24px;text-align:center;">${s.icon}</div>
+      <div style="flex:1;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:12px;font-weight:600;">${s.label}</span>
+          <span class="mono" style="font-size:12px;color:var(--text2);">${s.count} ticket${s.count!==1?'s':''}</span>
+        </div>
+        <div class="prog-bar" style="height:6px;border-radius:3px;">
+          <div class="prog-fill" style="width:${Math.round((s.count/maxSt)*100)}%;background:${s.color};border-radius:3px;"></div>
+        </div>
+      </div>
+    </div>`).join('');
+
+  // ── Weekly Activity Chart ────────────────────────────────────────────
+  const days = [];
+  for (let i=6;i>=0;i--) {
+    const d = new Date(now); d.setDate(d.getDate()-i);
+    const label = d.toLocaleDateString('en-PH',{weekday:'short'});
+    const dateStr = d.toISOString().slice(0,10);
+    const submitted = tickets.filter(t=>(t.created_at||'').slice(0,10)===dateStr).length;
+    const resolvedDay = tickets.filter(t=>(t.resolved_at||'').slice(0,10)===dateStr).length;
+    days.push({label,submitted,resolvedDay});
+  }
+  const maxDay = Math.max(...days.map(d=>Math.max(d.submitted,d.resolvedDay)),1);
+  document.getElementById('weeklyChart').innerHTML = `
+    <div style="display:flex;align-items:flex-end;gap:8px;height:90px;padding-bottom:4px;">
+      ${days.map(d=>`
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+          <div style="width:100%;display:flex;gap:2px;align-items:flex-end;justify-content:center;height:70px;">
+            <div style="flex:1;border-radius:4px 4px 0 0;background:var(--accent);opacity:.85;height:${Math.round((d.submitted/maxDay)*70)}px;min-height:${d.submitted?3:0}px;" title="Submitted: ${d.submitted}"></div>
+            <div style="flex:1;border-radius:4px 4px 0 0;background:var(--green);opacity:.85;height:${Math.round((d.resolvedDay/maxDay)*70)}px;min-height:${d.resolvedDay?3:0}px;" title="Resolved: ${d.resolvedDay}"></div>
+          </div>
+          <div style="font-size:9px;color:var(--text3);">${d.label}</div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:16px;margin-top:8px;padding-left:4px;">
+      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);">
+        <div style="width:10px;height:10px;border-radius:3px;background:var(--accent);opacity:.85;"></div> Submitted
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);">
+        <div style="width:10px;height:10px;border-radius:3px;background:var(--green);opacity:.85;"></div> Resolved
+      </div>
+    </div>`;
+
+  // ── Priority Breakdown ───────────────────────────────────────────────
+  const priorities = [
+    {label:'🔴 Urgent', key:'urgent', color:'var(--red)'},
+    {label:'🟡 High',   key:'high',   color:'var(--amber)'},
+    {label:'🔵 Normal', key:'normal', color:'var(--accent)'},
+    {label:'⚪ Low',    key:'low',    color:'var(--text3)'},
+  ];
+  const maxP = total||1;
+  document.getElementById('priorityBreakdown').innerHTML = priorities.map(p=>{
+    const cnt = tickets.filter(t=>t.priority===p.key).length;
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:12px;">${p.label}</span>
+        <span class="mono" style="font-size:11px;color:var(--text2);">${cnt}</span>
+      </div>
+      <div class="prog-bar" style="height:6px;"><div class="prog-fill" style="width:${Math.round((cnt/maxP)*100)}%;background:${p.color};"></div></div>
+    </div>`;}).join('');
+
+  // ── Resolution Rate Gauge ────────────────────────────────────────────
+  const pending = total - totalDone;
+  document.getElementById('resolutionRate').innerHTML = `
+    <div style="text-align:center;padding:12px 0;">
+      <div style="position:relative;width:120px;height:120px;margin:0 auto;">
+        <svg viewBox="0 0 120 120" style="width:120px;height:120px;transform:rotate(-90deg);">
+          <circle cx="60" cy="60" r="50" fill="none" stroke="var(--bg3)" stroke-width="12"/>
+          <circle cx="60" cy="60" r="50" fill="none" stroke="var(--green)" stroke-width="12"
+            stroke-dasharray="${Math.round(closeRate*3.14)} 314"
+            stroke-linecap="round"/>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:700;color:var(--green2);">${closeRate}%</div>
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Close Rate</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;gap:20px;margin-top:12px;">
+        <div style="text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:var(--green2);">${totalDone}</div>
+          <div style="font-size:10px;color:var(--text3);">Done</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:18px;font-weight:700;color:var(--amber2);">${pending}</div>
+          <div style="font-size:10px;color:var(--text3);">Pending</div>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Leaderboard ──────────────────────────────────────────────────────
   const memberStats=members.map(m=>{
     const myIds=(teamRows||[]).filter(r=>r.user_id===m.id).map(r=>r.ticket_id);
     const myT=tickets.filter(t=>myIds.includes(t.id));
-    const closed=myT.filter(t=>t.status==='closed'||t.status==='resolved').length;
-    const avgH=myT.filter(t=>t.resolved_at&&t.created_at).reduce((acc,t,_,arr)=>{
-      return acc+(new Date(t.resolved_at)-new Date(t.created_at))/3600000/arr.length;
-    },0);
-    return {...m,closed,avgH:avgH.toFixed(1),total:myT.length};
+    const closedM=myT.filter(t=>t.status==='closed'||t.status==='resolved').length;
+    const withTime=myT.filter(t=>t.resolved_at&&t.created_at);
+    const avgH=withTime.length?withTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/withTime.length:0;
+    return {...m,closed:closedM,avgH:avgH.toFixed(1),total:myT.length};
   }).sort((a,b)=>b.closed-a.closed);
 
   const maxC=memberStats[0]?.closed||1;
   document.getElementById('leaderTable').innerHTML=`
-    <thead><tr><th>Rank</th><th>Member</th><th>Closed</th><th>Avg Time</th><th>Total</th><th style="min-width:100px;">Score</th></tr></thead>
+    <thead><tr>
+      <th>Rank</th><th>Member</th><th>Resolved</th><th>Avg Time</th><th>Total</th><th style="min-width:100px;">Score</th>
+    </tr></thead>
     <tbody>${memberStats.map((m,i)=>{
       const initials=(m.name||'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
       const color=m.color||'#4f8ef7';
+      const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`;
+      const rankClass=i===0?'rank1':i===1?'rank2':i===2?'rank3':'';
       return `<tr>
-        <td><span class="${i===0?'rank1':i===1?'rank2':i===2?'rank3':''}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}</span></td>
+        <td><span class="${rankClass}" style="font-size:${i<3?'18':'13'}px;">${medal}</span></td>
         <td><div style="display:flex;align-items:center;gap:8px;">
-          <div class="av" style="width:28px;height:28px;font-size:10px;border-radius:8px;background:${color}">${initials}</div>
-          <div><div style="font-weight:700;">${m.name||'—'}</div><div style="font-size:10px;color:var(--text3)">${m.spec||'—'}</div></div>
+          <div class="av" style="width:30px;height:30px;font-size:11px;border-radius:9px;background:${color}">${initials}</div>
+          <div><div style="font-weight:700;font-size:13px;">${m.name||'—'}</div><div style="font-size:10px;color:var(--text3)">${m.spec||'—'}</div></div>
         </div></td>
-        <td><strong style="color:var(--green2);font-family:'JetBrains Mono',monospace;">${m.closed}</strong></td>
-        <td><span class="mono">${m.avgH}h</span></td>
-        <td><span class="mono">${m.total}</span></td>
-        <td><div class="prog-bar"><div class="prog-fill" style="width:${Math.round((m.closed/maxC)*100)}%;background:${color}"></div></div></td>
+        <td><strong style="color:var(--green2);font-family:'JetBrains Mono',monospace;font-size:14px;">${m.closed}</strong></td>
+        <td><span class="mono" style="color:${parseFloat(m.avgH)<4?'var(--green2)':parseFloat(m.avgH)<8?'var(--amber2)':'var(--red2)'}">${m.avgH}h</span></td>
+        <td><span class="mono" style="color:var(--text2);">${m.total}</span></td>
+        <td style="min-width:100px;"><div class="prog-bar" style="height:6px;"><div class="prog-fill" style="width:${Math.round((m.closed/maxC)*100)}%;background:${color}"></div></div><div style="font-size:9px;color:var(--text3);margin-top:2px;">${Math.round((m.closed/maxC)*100)}%</div></td>
       </tr>`;}).join('')}</tbody>`;
 
+  // ── Speed Chart ──────────────────────────────────────────────────────
+  const maxH=Math.max(...memberStats.map(m=>parseFloat(m.avgH)),1);
   document.getElementById('speedChart').innerHTML=memberStats.map(m=>{
-    const initials=(m.name||'').split(' ')[0]||'?';
-    return `<div class="barcol"><div class="bar" style="height:${Math.min(Math.round((parseFloat(m.avgH)/12)*70),70)}px;background:${m.color||'#4f8ef7'};opacity:.85;"></div><div class="barlbl">${initials}</div></div>`;
-  }).join('');
+    const h=parseFloat(m.avgH);
+    const barH=Math.min(Math.round((h/Math.max(maxH,1))*80),80);
+    const barColor=h<4?'var(--green)':h<8?'var(--amber)':'var(--red)';
+    const fn=(m.name||'').split(' ')[0]||'?';
+    return `<div class="barcol">
+      <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">${h}h</div>
+      <div class="bar" style="height:${barH}px;background:${barColor};opacity:.85;"></div>
+      <div class="barlbl">${fn}</div>
+    </div>`;}).join('');
 
-  const dM={};tickets.forEach(t=>{dM[t.dept]=(dM[t.dept]||0)+1;});
-  const depts=Object.entries(dM).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  // ── Dept Bars ────────────────────────────────────────────────────────
+  const dM={};tickets.forEach(t=>{if(t.dept)dM[t.dept]=(dM[t.dept]||0)+1;});
+  const depts=Object.entries(dM).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const dMax=depts[0]?.[1]||1;
-  document.getElementById('deptBars').innerHTML=depts.map(([d,c])=>`
-    <div style="margin-bottom:9px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="font-size:11px;">${d}</span><span class="mono" style="font-size:11px;">${c}</span></div>
-      <div class="prog-bar"><div class="prog-fill" style="width:${Math.round((c/dMax)*100)}%;background:var(--accent)"></div></div>
+  document.getElementById('deptBars').innerHTML=depts.map(([d,c])=>{
+    const pct=Math.round((c/dMax)*100);
+    return `<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+        <span style="font-size:11px;font-weight:500;">${d}</span>
+        <span class="mono" style="font-size:11px;color:var(--text2);">${c}</span>
+      </div>
+      <div class="prog-bar" style="height:6px;"><div class="prog-fill" style="width:${pct}%;background:var(--accent);"></div></div>
+    </div>`;}).join('');
+
+  // ── Category Breakdown ───────────────────────────────────────────────
+  const cM={};tickets.forEach(t=>{if(t.cat)cM[t.cat]=(cM[t.cat]||0)+1;});
+  const cats=Object.entries(cM).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const cMax=cats[0]?.[1]||1;
+  const catColors=['var(--accent)','var(--purple)','var(--amber)','var(--green)','var(--red)','var(--teal)','var(--accent2)','var(--amber2)'];
+  document.getElementById('categoryBars').innerHTML=cats.map(([c,n],i)=>`
+    <div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+        <span style="font-size:11px;font-weight:500;">${c}</span>
+        <span class="mono" style="font-size:11px;color:var(--text2);">${n}</span>
+      </div>
+      <div class="prog-bar" style="height:6px;"><div class="prog-fill" style="width:${Math.round((n/cMax)*100)}%;background:${catColors[i%catColors.length]};"></div></div>
     </div>`).join('');
+
+  // ── SLA Compliance ───────────────────────────────────────────────────
+  const slaConfig = SLA_CONFIG;
+  let slaOnTime=0, slaLate=0;
+  tickets.filter(t=>t.resolved_at&&t.created_at).forEach(t=>{
+    const cfg=slaConfig[t.priority]||slaConfig.normal;
+    const resolveMs=(parseDate(t.resolved_at)-parseDate(t.created_at));
+    const slaMs=cfg.resolve_min*60000;
+    if(resolveMs<=slaMs) slaOnTime++; else slaLate++;
+  });
+  const slaTotal=slaOnTime+slaLate;
+  const slaRate=slaTotal?Math.round((slaOnTime/slaTotal)*100):0;
+  document.getElementById('slaCompliance').innerHTML=`
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:13px;font-weight:600;color:var(--green2);">✅ On Time</span>
+          <span class="mono">${slaOnTime}/${slaTotal}</span>
+        </div>
+        <div class="prog-bar" style="height:10px;border-radius:5px;">
+          <div class="prog-fill" style="width:${slaRate}%;background:linear-gradient(90deg,var(--green),var(--accent));border-radius:5px;"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">${slaRate}% compliance rate</div>
+      </div>
+      <div style="text-align:center;padding:12px 16px;background:var(--bg3);border-radius:12px;border:1px solid var(--border);">
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:700;color:${slaRate>=80?'var(--green2)':slaRate>=50?'var(--amber2)':'var(--red2)'};">${slaRate}%</div>
+        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">SLA Rate</div>
+      </div>
+    </div>
+    ${slaLate>0?`<div style="margin-top:10px;padding:8px 12px;background:rgba(255,71,87,.08);border:1px solid rgba(255,71,87,.2);border-radius:8px;font-size:12px;color:var(--red2);">⚠️ ${slaLate} ticket${slaLate>1?'s':''} resolved past SLA deadline</div>`:'<div style="margin-top:10px;padding:8px 12px;background:rgba(16,217,139,.08);border:1px solid rgba(16,217,139,.2);border-radius:8px;font-size:12px;color:var(--green2);">🎉 Lahat ng tickets ay natupad sa loob ng SLA!</div>'}`;
 }
 
 // ══════════════════════════════════════════════════════════════
