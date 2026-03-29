@@ -2481,10 +2481,10 @@ async function renderAnalytics() {
     const myT=tickets.filter(t=>myIds.includes(t.id));
     const myDone=myT.filter(t=>t.status==='resolved'||t.status==='closed').length;
     const myActive=myT.filter(t=>t.status==='open'||t.status==='claimed'||t.status==='teamed').length;
-    const myAvg=myT.filter(t=>t.resolved_at&&t.created_at).reduce((acc,t,_,arr)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000/arr.length,0);
+    const myAvgMs=myT.filter(t=>t.resolved_at&&t.created_at).reduce((acc,t,_,arr)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/arr.length,0);
     document.getElementById('analyticsStats').innerHTML=`
       <div class="sc"><div class="sc-num" style="color:var(--green2)">${myDone}</div><div class="sc-lbl">My Resolved</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${myAvg.toFixed(1)}h</div><div class="sc-lbl">Avg Time</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${fmtDuration(myAvgMs)}</div><div class="sc-lbl">Avg Time</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--amber2)">${myActive}</div><div class="sc-lbl">Active</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--purple2)">${myT.length}</div><div class="sc-lbl">Total Assigned</div></div>`;
   } else {
@@ -2493,7 +2493,7 @@ async function renderAnalytics() {
       <div class="sc"><div class="sc-num" style="color:var(--green2)">${totalDone}</div><div class="sc-lbl">Resolved</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--amber2)">${open}</div><div class="sc-lbl">Open</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--red2)">${urgent}</div><div class="sc-lbl">Urgent</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${avgResolveH.toFixed(1)}h</div><div class="sc-lbl">Avg Resolve</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--accent2)">${fmtDuration(avgResolveH*3600000)}</div><div class="sc-lbl">Avg Resolve</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--purple2)">${closeRate}%</div><div class="sc-lbl">Close Rate</div></div>`;
   }
 
@@ -2602,8 +2602,8 @@ async function renderAnalytics() {
     const myT=tickets.filter(t=>myIds.includes(t.id));
     const closedM=myT.filter(t=>t.status==='closed'||t.status==='resolved').length;
     const withTime=myT.filter(t=>t.resolved_at&&t.created_at);
-    const avgH=withTime.length?withTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/withTime.length:0;
-    return {...m,closed:closedM,avgH:avgH.toFixed(1),total:myT.length};
+    const avgMs=withTime.length?withTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at)),0)/withTime.length:0;
+    return {...m,closed:closedM,avgH:fmtDuration(avgMs),avgMs,total:myT.length};
   }).sort((a,b)=>b.closed-a.closed);
 
   const maxC=memberStats[0]?.closed||1;
@@ -2623,20 +2623,20 @@ async function renderAnalytics() {
           <div><div style="font-weight:700;font-size:13px;">${m.name||'—'}</div><div style="font-size:10px;color:var(--text3)">${m.spec||'—'}</div></div>
         </div></td>
         <td><strong style="color:var(--green2);font-family:'JetBrains Mono',monospace;font-size:14px;">${m.closed}</strong></td>
-        <td><span class="mono" style="color:${parseFloat(m.avgH)<4?'var(--green2)':parseFloat(m.avgH)<8?'var(--amber2)':'var(--red2)'}">${m.avgH}h</span></td>
+        <td><span class="mono" style="color:${m.avgMs<240*60000?'var(--green2)':m.avgMs<480*60000?'var(--amber2)':'var(--red2)'}">${m.avgH}</span></td>
         <td><span class="mono" style="color:var(--text2);">${m.total}</span></td>
         <td style="min-width:100px;"><div class="prog-bar" style="height:6px;"><div class="prog-fill" style="width:${Math.round((m.closed/maxC)*100)}%;background:${color}"></div></div><div style="font-size:9px;color:var(--text3);margin-top:2px;">${Math.round((m.closed/maxC)*100)}%</div></td>
       </tr>`;}).join('')}</tbody>`;
 
   // ── Speed Chart ──────────────────────────────────────────────────────
-  const maxH=Math.max(...memberStats.map(m=>parseFloat(m.avgH)),1);
+  const maxH=Math.max(...memberStats.map(m=>m.avgMs||0),1)||1;
   document.getElementById('speedChart').innerHTML=memberStats.map(m=>{
-    const h=parseFloat(m.avgH);
-    const barH=Math.min(Math.round((h/Math.max(maxH,1))*80),80);
-    const barColor=h<4?'var(--green)':h<8?'var(--amber)':'var(--red)';
+    const h=m.avgMs||0;
+    const barH=Math.min(Math.round((h/maxH)*80),80);
+    const barColor=h<240*60000?'var(--green)':h<480*60000?'var(--amber)':'var(--red)';
     const fn=(m.name||'').split(' ')[0]||'?';
     return `<div class="barcol">
-      <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">${h}h</div>
+      <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">${m.avgH}</div>
       <div class="bar" style="height:${barH}px;background:${barColor};opacity:.85;"></div>
       <div class="barlbl">${fn}</div>
     </div>`;}).join('');
@@ -2689,11 +2689,9 @@ async function renderAnalytics() {
     if (!start||!end) return;
 
     const actualMs   = end - start;
-    const slaLimitMs = cfg.resolve_min * 60 * 1000;
-    const actualHrs  = (actualMs/3600000).toFixed(1);
-    const slaHrs     = cfg.resolve_min >= 1440
-      ? `${(cfg.resolve_min/1440).toFixed(0)}d`
-      : `${(cfg.resolve_min/60).toFixed(0)}h`;
+    const slaLimitMs = cfg.resolve * 60 * 1000;
+    const actualHrs  = fmtDuration(actualMs);
+    const slaHrs     = fmtSLALimit(cfg.resolve);
 
     if (actualMs <= slaLimitMs) {
       slaOnTime++;
@@ -2721,15 +2719,11 @@ async function renderAnalytics() {
     const pTickets = resolvedTickets.filter(t=>t.priority===p);
     const pOnTime  = pTickets.filter(t=>{
       const ms = parseDate(t.resolved_at||t.closed_at) - parseDate(t.created_at);
-      return ms <= cfg.resolve_min*60000;
+      return ms <= cfg.resolve*60000;
     }).length;
     const pRate    = pTickets.length ? Math.round((pOnTime/pTickets.length)*100) : null;
     // rename to pSlaLabel to avoid conflict with outer slaHrs
-    const pSlaLabel = cfg.resolve_min >= 1440
-      ? `${(cfg.resolve_min/1440).toFixed(0)}d`
-      : cfg.resolve_min >= 60
-        ? `${(cfg.resolve_min/60).toFixed(0)}h`
-        : `${cfg.resolve_min}m`;
+        const pSlaLabel = fmtSLALimit(cfg.resolve);
     return {p, label:priLabel[p], total:pTickets.length, onTime:pOnTime, rate:pRate, pSlaLabel};
   }).filter(x=>x.total>0);
 
@@ -2925,7 +2919,7 @@ async function downloadReport() {
     const myT  = filtered.filter(t=>ids.includes(t.id));
     const myD  = myT.filter(t=>t.status==='closed'||t.status==='resolved').length;
     const wT   = myT.filter(t=>t.resolved_at&&t.created_at);
-    const mAvg = wT.length?(wT.reduce((a,t)=>a+(parseDate(t.resolved_at)-parseDate(t.created_at))/3600000,0)/wT.length).toFixed(1):'—';
+    const mAvg = wT.length?fmtDuration(wT.reduce((a,t)=>a+(parseDate(t.resolved_at)-parseDate(t.created_at)),0)/wT.length):'—';
     return `<tr>
       <td>${m.name||'—'}</td>
       <td>${m.spec||'—'}</td>
@@ -3040,6 +3034,25 @@ async function downloadReport() {
 }
 
 function stLbl(s){return{open:'Open',claimed:'Claimed',teamed:'Teamed Up',resolved:'Pending Confirmation',closed:'Closed'}[s]||s;}
+
+// Smart time formatter — shows minutes if < 60min, hours+min if >= 60min
+function fmtDuration(ms) {
+  if (!ms || ms < 0) return '—';
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 1) return '< 1m';
+  if (totalMin < 60) return totalMin + 'm';
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? h + 'h ' + m + 'm' : h + 'h';
+}
+
+// SLA limit formatter
+function fmtSLALimit(minutes) {
+  if (!minutes) return '—';
+  if (minutes < 60) return minutes + 'm';
+  if (minutes < 1440) return (minutes/60).toFixed(0) + 'h';
+  return (minutes/1440).toFixed(0) + 'd';
+}
 function timeAgo(iso){if(!iso)return'';const d=(Date.now()-new Date(iso))/1000;if(d<60)return'just now';if(d<3600)return`${Math.floor(d/60)}m ago`;if(d<86400)return`${Math.floor(d/3600)}h ago`;return`${Math.floor(d/86400)}d ago`;}
 
 // ── SLA HELPERS ───────────────────────────────────────────────────────────
@@ -3047,7 +3060,7 @@ function getSLADeadline(ticket) {
   const cfg = SLA_CONFIG[ticket.priority] || SLA_CONFIG.normal;
   const created = parseDate(ticket.created_at);
   if (!created) return null;
-  return new Date(created.getTime() + cfg.resolve_min * 60000);
+  return new Date(created.getTime() + cfg.resolve * 60000);
 }
 
 function parseDate(iso) {
@@ -3068,7 +3081,7 @@ function getSLAStatus(ticket) {
   if (!created) return null;
   const now = Date.now();
   const elapsedMin = (now - created.getTime()) / 60000;
-  const resolveMin = cfg.resolve_min;
+  const resolveMin = cfg.resolve;
   if (!resolveMin || isNaN(elapsedMin)) return null;
   const pct = elapsedMin / resolveMin;
 
