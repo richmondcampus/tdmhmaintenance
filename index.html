@@ -2618,34 +2618,118 @@ async function renderAnalytics() {
     </div>`).join('');
 
   // ── SLA Compliance ───────────────────────────────────────────────────
+  // Computation: created_at → resolved_at (kung kailan natapos ng maintenance)
+  // Basis: resolve_min mula sa sla_config per priority
   const slaConfig = SLA_CONFIG;
+
+  // Only include tickets na may resolved_at (natapos na)
+  const resolvedTickets = tickets.filter(t=>t.resolved_at && t.created_at);
+
   let slaOnTime=0, slaLate=0;
-  tickets.filter(t=>t.resolved_at&&t.created_at).forEach(t=>{
-    const cfg=slaConfig[t.priority]||slaConfig.normal;
-    const resolveMs=(parseDate(t.resolved_at)-parseDate(t.created_at));
-    const slaMs=cfg.resolve_min*60000;
-    if(resolveMs<=slaMs) slaOnTime++; else slaLate++;
+  const lateList=[];
+
+  resolvedTickets.forEach(t=>{
+    const cfg = slaConfig[t.priority] || slaConfig.normal;
+    const start = parseDate(t.created_at);
+    const end   = parseDate(t.resolved_at);
+    if (!start||!end) return;
+
+    const actualMs  = end - start;                  // actual time taken
+    const slaLimitMs = cfg.resolve_min * 60 * 1000; // SLA limit in ms
+    const actualH   = (actualMs/3600000).toFixed(1);
+    const slaH      = (cfg.resolve_min/60).toFixed(0);
+
+    if (actualMs <= slaLimitMs) {
+      slaOnTime++;
+    } else {
+      slaLate++;
+      lateList.push({
+        id: t.id,
+        title: t.title,
+        priority: t.priority,
+        actualH,
+        slaH,
+        overBy: ((actualMs - slaLimitMs)/3600000).toFixed(1)
+      });
+    }
   });
-  const slaTotal=slaOnTime+slaLate;
-  const slaRate=slaTotal?Math.round((slaOnTime/slaTotal)*100):0;
+
+  const slaTotal = slaOnTime + slaLate;
+  const slaRate  = slaTotal ? Math.round((slaOnTime/slaTotal)*100) : 0;
+
+  // Per-priority SLA breakdown
+  const priList = ['urgent','high','normal','low'];
+  const priLabel = {urgent:'🔴 Urgent',high:'🟡 High',normal:'🔵 Normal',low:'⚪ Low'};
+  const priBreakdown = priList.map(p=>{
+    const cfg = slaConfig[p]||slaConfig.normal;
+    const pTickets = resolvedTickets.filter(t=>t.priority===p);
+    const pOnTime  = pTickets.filter(t=>{
+      const ms = parseDate(t.resolved_at) - parseDate(t.created_at);
+      return ms <= cfg.resolve_min*60000;
+    }).length;
+    const pRate = pTickets.length ? Math.round((pOnTime/pTickets.length)*100) : null;
+    const slaH  = cfg.resolve_min >= 1440
+      ? `${(cfg.resolve_min/1440).toFixed(0)}d`
+      : cfg.resolve_min >= 60
+        ? `${(cfg.resolve_min/60).toFixed(0)}h`
+        : `${cfg.resolve_min}m`;
+    return {p, label:priLabel[p], total:pTickets.length, onTime:pOnTime, rate:pRate, slaH};
+  }).filter(x=>x.total>0);
+
   document.getElementById('slaCompliance').innerHTML=`
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:200px;">
+    <!-- Overall rate -->
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div style="flex:1;min-width:180px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-          <span style="font-size:13px;font-weight:600;color:var(--green2);">✅ On Time</span>
-          <span class="mono">${slaOnTime}/${slaTotal}</span>
+          <span style="font-size:13px;font-weight:600;">Tickets Resolved On Time</span>
+          <span class="mono" style="color:var(--text2);">${slaOnTime} / ${slaTotal}</span>
         </div>
         <div class="prog-bar" style="height:10px;border-radius:5px;">
-          <div class="prog-fill" style="width:${slaRate}%;background:linear-gradient(90deg,var(--green),var(--accent));border-radius:5px;"></div>
+          <div class="prog-fill" style="width:${slaRate}%;background:linear-gradient(90deg,${slaRate>=80?'var(--green)':'slaRate>=50?var(--amber)':'var(--red)'},${slaRate>=80?'var(--accent)':'var(--amber2)'});border-radius:5px;"></div>
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px;">${slaRate}% compliance rate</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">
+          Mula sa <strong>submitted date/time</strong> hanggang <strong>resolved date/time</strong>
+        </div>
       </div>
-      <div style="text-align:center;padding:12px 16px;background:var(--bg3);border-radius:12px;border:1px solid var(--border);">
-        <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:700;color:${slaRate>=80?'var(--green2)':slaRate>=50?'var(--amber2)':'var(--red2)'};">${slaRate}%</div>
-        <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">SLA Rate</div>
+      <div style="text-align:center;padding:14px 18px;background:var(--bg3);border-radius:12px;border:1px solid var(--border);flex-shrink:0;">
+        <div style="font-family:'Bricolage Grotesque',sans-serif;font-size:30px;font-weight:700;color:${slaRate>=80?'var(--green2)':slaRate>=50?'var(--amber2)':'var(--red2)'};">${slaRate}%</div>
+        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-top:2px;">SLA Rate</div>
       </div>
     </div>
-    ${slaLate>0?`<div style="margin-top:10px;padding:8px 12px;background:rgba(255,71,87,.08);border:1px solid rgba(255,71,87,.2);border-radius:8px;font-size:12px;color:var(--red2);">⚠️ ${slaLate} ticket${slaLate>1?'s':''} resolved past SLA deadline</div>`:'<div style="margin-top:10px;padding:8px 12px;background:rgba(16,217,139,.08);border:1px solid rgba(16,217,139,.2);border-radius:8px;font-size:12px;color:var(--green2);">🎉 Lahat ng tickets ay natupad sa loob ng SLA!</div>'}`;
+
+    <!-- Per-priority breakdown -->
+    <div style="margin-bottom:14px;">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">Per Priority</div>
+      ${priBreakdown.map(x=>`
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="font-size:12px;width:80px;flex-shrink:0;">${x.label}</div>
+          <div style="flex:1;">
+            <div class="prog-bar" style="height:6px;">
+              <div class="prog-fill" style="width:${x.rate??0}%;background:${x.rate===100?'var(--green)':x.rate>=50?'var(--amber)':'var(--red)'};"></div>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text2);font-family:'JetBrains Mono',monospace;width:60px;text-align:right;">${x.onTime}/${x.total}</div>
+          <div style="font-size:10px;color:var(--text3);width:30px;text-align:right;">${x.rate??'—'}%</div>
+          <div style="font-size:10px;color:var(--text3);width:50px;text-align:right;">SLA: ${x.slaH}</div>
+        </div>`).join('')}
+    </div>
+
+    <!-- Result message -->
+    ${slaLate===0
+      ? `<div style="padding:10px 14px;background:rgba(16,217,139,.08);border:1px solid rgba(16,217,139,.2);border-radius:8px;font-size:12px;color:var(--green2);">🎉 Lahat ng ${slaTotal} tickets ay natapos sa loob ng SLA deadline!</div>`
+      : `<div style="padding:10px 14px;background:rgba(255,71,87,.07);border:1px solid rgba(255,71,87,.18);border-radius:8px;">
+          <div style="font-size:12px;color:var(--red2);font-weight:700;margin-bottom:6px;">⚠️ ${slaLate} ticket${slaLate>1?'s':''} na lampas sa SLA resolve time</div>
+          <div style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;">
+            ${lateList.slice(0,10).map(t=>`
+              <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);">
+                <span class="badge b-${t.priority}" style="font-size:9px;">${t.priority.toUpperCase()}</span>
+                <span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.title}</span>
+                <span class="mono" style="color:var(--red2);flex-shrink:0;">+${t.overBy}h over</span>
+              </div>`).join('')}
+            ${lateList.length>10?`<div style="font-size:10px;color:var(--text3);padding-top:4px;">...at ${lateList.length-10} pa</div>`:''}
+          </div>
+        </div>`
+    }`;
 }
 
 // ══════════════════════════════════════════════════════════════
