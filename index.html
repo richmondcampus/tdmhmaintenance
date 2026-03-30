@@ -2488,7 +2488,7 @@ function filterTeam() {
         </div>
       </div>` : '';
 
-    return '<div class="team-row" id="tr-'+m.id+'" onclick="toggleTeamRow(''+m.id+'')">'
+    return '<div class="team-row" id="tr-'+m.id+'" data-uid="'+m.id+'" onclick="toggleTeamRow(this.getAttribute(\'data-uid\'))">' 
       + '<div class="team-row-main">'
       // Avatar
       + '<div class="av" style="width:36px;height:36px;font-size:12px;border-radius:10px;flex-shrink:0;background:'+color+'">'+initials+'</div>'
