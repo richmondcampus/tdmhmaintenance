@@ -763,7 +763,7 @@ textarea{resize:vertical;min-height:84px;}
     </div>
     <div class="topbar-right">
       <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle light/dark mode" style="width:36px;height:36px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;flex-shrink:0;transition:.2s;">🌙</button>
-      <div class="notif-btn" onclick="switchPage('notifs')" title="Notifications">🔔<div class="notif-dot" id="notifDot"></div></div>
+      <div class="notif-btn" onclick="switchPage('notifs')" title="Notifications" style="position:relative;">🔔<div class="notif-dot" id="notifDot"></div></div>
       <div class="user-chip" onclick="openAccountMenu()">
         <div class="av" id="topAv" style="background:var(--accent)">A</div>
         <span class="uname" id="topName">User</span>
@@ -877,7 +877,7 @@ textarea{resize:vertical;min-height:84px;}
       </div>
 
       <!-- Weekly Activity Chart -->
-      <div class="card">
+      <div class="card" id="weeklyChartCard">
         <div class="card-head">
           <div><div class="card-title">📈 Weekly Activity</div><div class="card-sub">Tickets submitted at resolved (last 7 days)</div></div>
         </div>
@@ -885,7 +885,7 @@ textarea{resize:vertical;min-height:84px;}
       </div>
 
       <!-- Priority Heatmap + Resolution Rate -->
-      <div class="g2">
+      <div class="g2" id="priorityCard">
         <div class="card">
           <div class="card-head"><div class="card-title">🎯 Priority Breakdown</div><div class="card-sub">Lahat ng tickets</div></div>
           <div id="priorityBreakdown"></div>
@@ -897,7 +897,7 @@ textarea{resize:vertical;min-height:84px;}
       </div>
 
       <!-- Leaderboard -->
-      <div class="card">
+      <div class="card" id="leaderCard">
         <div class="card-head">
           <div><div class="card-title">🏆 Team Leaderboard</div><div class="card-sub">Pinaka-maraming natapos</div></div>
         </div>
@@ -905,7 +905,7 @@ textarea{resize:vertical;min-height:84px;}
       </div>
 
       <!-- Speed Chart + Dept Chart -->
-      <div class="g2">
+      <div class="g2" id="speedCard">
         <div class="card">
           <div class="card-head"><div class="card-title">⏱ Avg. Resolution Time</div><div class="card-sub">Hours — mas mababa mas magaling</div></div>
           <div class="barchart" style="height:100px;" id="speedChart"></div>
@@ -917,7 +917,7 @@ textarea{resize:vertical;min-height:84px;}
       </div>
 
       <!-- Category breakdown -->
-      <div class="card">
+      <div class="card" id="categoryCard">
         <div class="card-head"><div class="card-title">🔧 Tickets by Category</div><div class="card-sub">Anong uri ng problema ang madalas</div></div>
         <div id="categoryBars"></div>
       </div>
@@ -1414,7 +1414,14 @@ function switchPage(id) {
   if(pg)pg.classList.add('active');
   document.querySelectorAll(`[data-page="${id}"]`).forEach(b=>b.classList.add('active'));
   if(id==='dashboard') renderDash();
-  if(id==='tickets')   renderTickets();
+  if(id==='tickets') {
+    // Default to Open filter for maintenance staff
+    if (CU && CU.role==='maintenance') {
+      const stF = document.getElementById('stF');
+      if (stF && !stF.value) stF.value = 'open';
+    }
+    renderTickets();
+  }
   if(id==='mytickets') renderMyTickets();
   if(id==='team')      renderTeam();
   if(id==='analytics') renderAnalytics();
@@ -1786,6 +1793,30 @@ async function maintClaim(id, btn) {
 }
 
 // ── Quick resolve directly from the big button ────────────────────────────
+async function maintCancelTicket(id) {
+  if (!confirm('I-cancel ang ticket na ito at ibalik sa Open para makuha ng iba?')) return;
+  const {data:t} = await sb.from('tickets').select('*').eq('id',id).single();
+  if (!t) return;
+  await sb.from('tickets').update({status:'open', claimed_by:null, updated_at:new Date().toISOString()}).eq('id',id);
+  await sb.from('ticket_team').delete().eq('ticket_id',id);
+  await addNote(id, `↩ ${CU.name} ay hindi nakaya ang ticket — ibinalik sa Open para makuha ng iba.`);
+  toast('info','Ticket Cancelled','Ibinalik sa Open — available na para sa ibang maintenance staff.');
+  addNotif('↩','Ticket Ibinalik',`${id} ay ibinalik sa Open ng ${CU.name}`);
+  openTkt(id);
+  renderMyTickets();
+}
+
+async function maintReopenTicket(id) {
+  if (!confirm('I-reopen ang ticket na ito? Ibabalik sa Claimed status.')) return;
+  const {data:t} = await sb.from('tickets').select('*').eq('id',id).single();
+  if (!t) return;
+  await sb.from('tickets').update({status:'claimed', resolved_at:null, updated_at:new Date().toISOString()}).eq('id',id);
+  await addNote(id, `🔄 ${CU.name} ay nag-reopen ng ticket — hindi pa tapos ang trabaho.`);
+  toast('info','Ticket Reopened','Status na-set back sa Claimed.');
+  openTkt(id);
+  renderMyTickets();
+}
+
 async function maintMarkDone(id, btn) {
   // Confirmation dialog in Filipino
   const confirmed = confirm('Tapos mo na ba ang trabaho?\n\nI-tap ang OK kung tapos na, Cancel kung hindi pa.');
@@ -1917,14 +1948,19 @@ async function openTkt(id) {
       actionBar=`<div style="background:rgba(159,122,255,.07);border:1px solid rgba(159,122,255,.2);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;">
         <div style="font-size:11px;font-weight:700;color:var(--purple2);margin-bottom:8px;">Update Status</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          <button class="btn btn-sm btn-ghost" onclick="setStatus('${id}','claimed')">Back to Claimed</button>
-          <button class="btn btn-sm btn-primary" onclick="maintResolve('${id}')">✓ Mark Resolved</button>
+          <button class="btn btn-sm btn-ghost" style="color:var(--red2);border-color:rgba(220,38,38,.3);" onclick="maintCancelTicket('${id}')">↩ Di kaya — I-cancel (balik Open)</button>
+          <button class="btn btn-sm btn-primary" onclick="maintResolve('${id}')">✓ Tapos Na — I-resolve</button>
         </div>
       </div>`;
-    } else if (t.status==='resolved') {
+    } else if (t.status==='resolved' && isMine) {
       actionBar=`<div style="background:rgba(34,199,122,.06);border:1px solid rgba(34,199,122,.18);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;">
-        <div style="font-size:12px;font-weight:700;color:var(--green2);margin-bottom:3px;">✓ Marked Resolved</div>
-        <div style="font-size:11px;color:var(--text3);">Waiting for ${t.dept} to confirm. Auto-closes in <strong style="color:var(--amber2)">${hrsLeft}h</strong>.</div>
+        <div style="font-size:12px;font-weight:700;color:var(--green2);margin-bottom:3px;">✓ Na-resolve na — Hinihintay ang confirmation</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Waiting for ${t.dept} to confirm. Auto-closes in <strong style="color:var(--amber2)">${hrsLeft}h</strong>.</div>
+        <button class="btn btn-sm btn-ghost" style="color:var(--amber2);border-color:rgba(217,119,6,.3);" onclick="maintReopenTicket('${id}')">🔄 Reopen — Hindi pa tapos</button>
+      </div>`;
+    } else if (t.status==='resolved' && !isMine) {
+      actionBar=`<div style="background:rgba(34,199,122,.06);border:1px solid rgba(34,199,122,.18);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--green2);">✓ Pending Confirmation mula sa ${t.dept}</div>
       </div>`;
     }
   }
@@ -2479,15 +2515,22 @@ async function renderAnalytics() {
   // ── KPI Stats ────────────────────────────────────────────────────────
   if (CU.role==='maintenance') {
     const myIds=(teamRows||[]).filter(r=>r.user_id===CU.id).map(r=>r.ticket_id);
-    const myT=tickets.filter(t=>myIds.includes(t.id));
+    const myT=allTickets.filter(t=>myIds.includes(t.id));
     const myDone=myT.filter(t=>t.status==='resolved'||t.status==='closed').length;
     const myActive=myT.filter(t=>t.status==='open'||t.status==='claimed'||t.status==='teamed').length;
-    const myAvgMs=myT.filter(t=>t.resolved_at&&t.created_at).reduce((acc,t,_,arr)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at))/arr.length,0);
+    const myWithTime=myT.filter(t=>t.resolved_at&&t.created_at);
+    const myAvgMs=myWithTime.length?myWithTime.reduce((acc,t)=>acc+(parseDate(t.resolved_at)-parseDate(t.created_at)),0)/myWithTime.length:0;
+    const myCloseRate=myT.length?Math.round((myDone/myT.length)*100):0;
     document.getElementById('analyticsStats').innerHTML=`
       <div class="sc"><div class="sc-num" style="color:var(--green2)">${myDone}</div><div class="sc-lbl">My Resolved</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--accent2)">${fmtDuration(myAvgMs)}</div><div class="sc-lbl">Avg Time</div></div>
       <div class="sc"><div class="sc-num" style="color:var(--amber2)">${myActive}</div><div class="sc-lbl">Active</div></div>
-      <div class="sc"><div class="sc-num" style="color:var(--purple2)">${myT.length}</div><div class="sc-lbl">Total Assigned</div></div>`;
+      <div class="sc"><div class="sc-num" style="color:var(--purple2)">${myT.length}</div><div class="sc-lbl">Total Assigned</div></div>
+      <div class="sc"><div class="sc-num" style="color:var(--text)">${myCloseRate}%</div><div class="sc-lbl">Close Rate</div></div>`;
+    // Hide admin-only analytics sections for maintenance staff
+    ['statusBreakdownCard','weeklyChartCard','priorityCard','resolutionCard','leaderCard','speedCard','deptCard','categoryCard','slaCard']
+      .forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+    return; // maintenance only sees own KPIs
   } else {
     document.getElementById('analyticsStats').innerHTML=`
       <div class="sc"><div class="sc-num" style="color:var(--text)">${total}</div><div class="sc-lbl">Total Tickets</div></div>
@@ -2798,13 +2841,26 @@ function renderNotifs() {
   NOTIFS.forEach(n=>n.read=true);
   updateNotifDot();buildNav();
   const el=document.getElementById('notifList');
-  if(!NOTIFS.length){el.innerHTML='<div class="empty"><div class="empty-ico">🔔</div><p>No notifications yet.</p></div>';return;}
-  el.innerHTML=[...NOTIFS].reverse().map(n=>`
-    <div style="display:flex;gap:12px;padding:13px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;">
-      <div style="font-size:20px;">${n.icon}</div>
-      <div><div style="font-weight:700;font-size:13px;">${n.title}</div>
-      <div style="font-size:12px;color:var(--text2);margin-top:2px;">${n.body}</div>
-      <div class="mono" style="font-size:10px;color:var(--text3);margin-top:5px;">${fmt(n.time)}</div></div>
+
+  // Show role-specific header
+  const roleHint = CU.role==='maintenance'
+    ? '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">📋 <strong>Mga abiso para sa iyo:</strong> Bagong ticket, na-claim, na-resolve, na-reopen, at mga update sa iyong assigned tickets.</div>'
+    : CU.role==='department'
+    ? '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);">📋 <strong>Mga abiso para sa iyo:</strong> Kapag ang inyong ticket ay na-resolve at handa na para sa confirmation, at kapag may update.</div>'
+    : '';
+
+  if(!NOTIFS.length){
+    el.innerHTML = roleHint + '<div class="empty"><div class="empty-ico">🔔</div><p>Wala pang notifications.</p><div style="font-size:12px;color:var(--text3);margin-top:6px;">Lalabas dito ang mga update sa iyong tickets.</div></div>';
+    return;
+  }
+  el.innerHTML = roleHint + [...NOTIFS].reverse().map(n=>`
+    <div style="display:flex;gap:12px;padding:13px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin-bottom:8px;${!n.read?'border-left:3px solid var(--accent);':''}" onclick="this.style.borderLeft='1px solid var(--border)'">
+      <div style="font-size:22px;flex-shrink:0;">${n.icon}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:13px;">${n.title}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px;">${n.body}</div>
+        <div class="mono" style="font-size:10px;color:var(--text3);margin-top:5px;">${fmt(n.time)}</div>
+      </div>
     </div>`).join('');
 }
 function addNotif(icon,title,body){NOTIFS.push({id:'n'+Date.now(),icon,title,body,time:new Date().toISOString(),read:false});updateNotifDot();buildNav();}
@@ -3120,9 +3176,17 @@ function slaChip(ticket) {
     overdue: { bg:'rgba(220,38,38,.12)',  text:'#DC2626', border:'rgba(220,38,38,.3)'  },
   };
   const c = colors[s.state];
+  // Show deadline time so mobile users can see exact time
+  const cfg = SLA_CONFIG[ticket.priority] || SLA_CONFIG.normal;
+  const created = parseDate(ticket.created_at);
+  const deadline = created ? new Date(created.getTime() + cfg.resolve * 60000) : null;
+  const deadlineStr = deadline ? deadline.toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit'}) : '';
+  const label = s.state==='overdue'
+    ? '⚠ OVERDUE'
+    : '⏱ ' + s.label + (deadlineStr ? ' (by ' + deadlineStr + ')' : '');
   return '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;'
     + 'background:'+c.bg+';color:'+c.text+';border:1px solid '+c.border+';">'
-    + (s.state==='overdue' ? '⚠ OVERDUE' : '⏱ '+s.label)
+    + label
     + '</span>';
 }
 
