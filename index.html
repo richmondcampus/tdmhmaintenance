@@ -1635,7 +1635,7 @@ function maintCardMine(t, taggedIds=[]) {
   // Build Team Up section — pre-build as a plain string to avoid nested backtick issues
   const others = MAINT_MEMBERS.filter(m => m.id !== CU.id);
   let teamSection = '';
-  if (others.length && !waiting) {
+  if (others.length && !waiting && t.status !== 'closed') {
     let pills = '';
     others.forEach(m => {
       const initials = (m.name||'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
@@ -2007,7 +2007,8 @@ async function openTkt(id) {
 
   // ── Team up (maintenance or admin, only if active) ─────────
   let teamUp='';
-  if ((isMaint&&isMine&&t.status!=='resolved'&&t.status!=='closed')||isAdmin) {
+  const isActiveTicket = t.status!=='resolved' && t.status!=='closed';
+  if ((isMaint&&isMine&&isActiveTicket)||(isAdmin&&isActiveTicket)) {
     const others = MAINT_MEMBERS.filter(m=>m.id!==CU.id||isAdmin);
     if (others.length) {
       teamUp=`<div style="margin-bottom:14px;">
