@@ -1156,6 +1156,7 @@ function doLogout() {
   // Stop realtime subscriptions
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   CU = null; MAINT_MEMBERS = []; NOTIFS = []; ALL_USERS = {};
+  setOnlineStatus('offline');
   localStorage.removeItem('tdmh_session');
   document.getElementById('app').style.display = 'none';
   document.getElementById('loginPage').style.display = 'block';
@@ -1221,6 +1222,8 @@ async function initApp() {
   buildNav();
   checkPendingAutoClose();
   updateNotifDot();
+  // Set user as online
+  setOnlineStatus('online');
   if (CU.role==='maintenance') switchPage('mytickets');
   else if (CU.role==='department') switchPage('tickets');
   else switchPage('dashboard');
@@ -1254,6 +1257,16 @@ function startRealtime() {
     // Listen for team assignments
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_team' },
       (payload) => handleRealtimeTeam(payload))
+    // Listen for user online/offline status changes
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users' },
+      (payload) => {
+        // Update ALL_USERS cache
+        if (payload.new?.id) {
+          ALL_USERS[payload.new.id] = { ...ALL_USERS[payload.new.id], ...payload.new };
+          // If team page is open, refresh it
+          if (getActivePage() === 'team') renderTeam();
+        }
+      })
     .subscribe((status) => {
       console.log('[Realtime]', status);
       if (status === 'SUBSCRIBED') {
@@ -1933,7 +1946,8 @@ async function openTkt(id) {
   const isDept   = CU.role==='department';
   const isMine   = teamIds.includes(CU.id);
   const hrs = t.resolved_at ? Math.round((Date.now()-new Date(t.resolved_at))/3600000) : null;
-  const hrsToResolve = t.resolved_at && t.created_at ? Math.round((new Date(t.resolved_at)-new Date(t.created_at))/3600000) : null;
+  const resolveMs = t.resolved_at && t.created_at ? (new Date(t.resolved_at)-new Date(t.created_at)) : null;
+  const hrsToResolve = resolveMs !== null ? fmtDuration(resolveMs) : null;
   const hrsLeft = hrs !== null ? Math.max(0,24-hrs) : null;
 
   // ── Claim / Status bar ─────────────────────────────────────
@@ -2063,7 +2077,7 @@ async function openTkt(id) {
         <div class="inforow"><span class="ir-lbl">Submitted</span><span class="ir-val">${fmt(t.created_at)}</span></div>
         <div class="inforow"><span class="ir-lbl">Team</span><span class="ir-val">${teamNames}</span></div>
         <div class="inforow"><span class="ir-lbl">Contact</span><span class="ir-val" style="font-size:11px;">${t.email||'—'}</span></div>
-        ${hrsToResolve!==null?`<div class="inforow"><span class="ir-lbl">Resolved In</span><span class="ir-val" style="color:var(--green2)">${hrsToResolve}h</span></div>`:''}
+        ${hrsToResolve!==null?`<div class="inforow"><span class="ir-lbl">Resolved In</span><span class="ir-val" style="color:var(--green2)">${hrsToResolve}</span></div>`:''}
         ${t.status==='resolved'&&hrsLeft!==null?`<div class="inforow"><span class="ir-lbl">Auto-closes</span><span class="ir-val" style="color:var(--amber2)">in ${hrsLeft}h</span></div>`:''}
         ${t.closed_at?`<div class="inforow"><span class="ir-lbl">Closed At</span><span class="ir-val">${fmt(t.closed_at)}</span></div>`:''}
       </div>
@@ -3122,6 +3136,33 @@ async function downloadReport() {
 }
 
 function stLbl(s){return{open:'Open',claimed:'Claimed',teamed:'Teamed Up',resolved:'Pending Confirmation',closed:'Closed'}[s]||s;}
+
+// ── ONLINE STATUS ─────────────────────────────────────────────────────────
+async function setOnlineStatus(status) {
+  if (!CU) return;
+  await sb.from('users').update({ online_status: status }).eq('id', CU.id);
+}
+
+// Set online when page is visible, offline when hidden/closed
+document.addEventListener('visibilitychange', () => {
+  if (!CU) return;
+  setOnlineStatus(document.hidden ? 'offline' : 'online');
+});
+
+window.addEventListener('beforeunload', () => {
+  if (!CU) return;
+  // Use sendBeacon for reliability on page close
+  const url = `https://niqfgtvzibigpdlzsrxt.supabase.co/rest/v1/users?id=eq.${CU.id}`;
+  const body = JSON.stringify({ online_status: 'offline' });
+  navigator.sendBeacon(url + '&apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pcWZndHZ6aWJpZ3BkbHpzcnh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNjYxNDcsImV4cCI6MjA4OTc0MjE0N30.-P1bzXTTbEcupI_g17IF8hZKA-KF9KR3tXC_I3TmG0U',
+    new Blob([body], { type: 'application/json' })
+  );
+});
+
+// Heartbeat — update online every 2 minutes while active
+setInterval(() => {
+  if (CU && !document.hidden) setOnlineStatus('online');
+}, 120000);
 
 // Smart time formatter — shows minutes if < 60min, hours+min if >= 60min
 // Duration formatter — pure minutes always
