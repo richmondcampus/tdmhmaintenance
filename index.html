@@ -1619,7 +1619,7 @@ function buildNav() {
   let tabs = [];
   if (role==='admin')       tabs=[{id:'dashboard',lbl:'📊',name:'Dashboard'},{id:'tickets',lbl:'🎫',name:'Tickets'},{id:'team',lbl:'👷',name:'Team'},{id:'analytics',lbl:'📈',name:'Analytics'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
   else if (role==='maintenance') tabs=[{id:'mytickets',lbl:'🔧',name:'My Tickets'},{id:'tickets',lbl:'🎫',name:'All Tickets'},{id:'analytics',lbl:'📈',name:'My Stats'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
-  else tabs=[{id:'tickets',lbl:'🎫',name:'My Requests'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
+  else tabs=[{id:'dashboard',lbl:'🏠',name:'Dashboard'},{id:'tickets',lbl:'🎫',name:'My Requests'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
 
   // TICKETS is loaded async from Supabase — safe fallback to 0
   const open = (typeof OPEN_COUNT !== 'undefined') ? OPEN_COUNT : 0;
@@ -1658,10 +1658,15 @@ function switchPage(id) {
   document.querySelectorAll(`[data-page="${id}"]`).forEach(b=>b.classList.add('active'));
   if(id==='dashboard') renderDash();
   if(id==='tickets') {
-    // Default to Open filter for maintenance staff
+    // Maintenance only — default to Open filter
     if (CU && CU.role==='maintenance') {
       const stF = document.getElementById('stF');
       if (stF && !stF.value) stF.value = 'open';
+    }
+    // Department — clear filter so all their tickets show
+    if (CU && CU.role==='department') {
+      const stF = document.getElementById('stF');
+      if (stF) stF.value = '';
     }
     renderTickets();
   }
