@@ -844,20 +844,41 @@ textarea{resize:vertical;min-height:84px;}
 
     <!-- DASHBOARD -->
     <div class="page active" id="pg-dashboard">
-      <div class="stats-row" id="dashStats"><div class="loading"><div class="spin"></div><br>Loading...</div></div>
-      <div class="g2">
-        <div class="card">
-          <div class="card-head"><div><div class="card-title">Weekly Activity</div><div class="card-sub">Tickets submitted</div></div></div>
-          <div class="barchart" id="weekChart"></div>
+      <!-- Admin/Maintenance dashboard -->
+      <div id="dashAdmin">
+        <div class="stats-row" id="dashStats"><div class="loading"><div class="spin"></div><br>Loading...</div></div>
+        <div class="g2">
+          <div class="card">
+            <div class="card-head"><div><div class="card-title">Weekly Activity</div><div class="card-sub">Tickets submitted</div></div></div>
+            <div class="barchart" id="weekChart"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><div class="card-title">By Priority</div><div class="card-sub">Active tickets</div></div></div>
+            <div id="priorityBars"></div>
+          </div>
         </div>
         <div class="card">
-          <div class="card-head"><div><div class="card-title">By Priority</div><div class="card-sub">Active tickets</div></div></div>
-          <div id="priorityBars"></div>
+          <div class="card-head"><div class="card-title">Recent Activity</div><button class="btn btn-ghost btn-sm" onclick="switchPage('tickets')">View All →</button></div>
+          <div id="dashRecent"></div>
         </div>
       </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Recent Activity</div><button class="btn btn-ghost btn-sm" onclick="switchPage('tickets')">View All →</button></div>
-        <div id="dashRecent"></div>
+
+      <!-- Department/Requester dashboard -->
+      <div id="dashDept" style="display:none;">
+        <!-- Greeting -->
+        <div id="deptGreeting" style="margin-bottom:16px;"></div>
+        <!-- Action Required — Pending Confirmation -->
+        <div id="deptActionRequired"></div>
+        <!-- KPI Stats -->
+        <div class="stats-row" id="deptStats" style="margin-bottom:16px;"></div>
+        <!-- Recent Tickets -->
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">📋 Aking mga Request</div><div class="card-sub">Pinakabago</div></div>
+            <button class="btn btn-ghost btn-sm" onclick="switchPage('tickets')">Lahat →</button>
+          </div>
+          <div id="deptRecentTickets"></div>
+        </div>
       </div>
     </div>
 
@@ -1433,7 +1454,7 @@ async function initApp() {
   // Set user as online
   setOnlineStatus('online');
   if (CU.role==='maintenance') switchPage('mytickets');
-  else if (CU.role==='department') switchPage('tickets');
+  else if (CU.role==='department') switchPage('dashboard');
   else switchPage('dashboard');
   // Start real-time subscriptions after page loads
   startRealtime();
@@ -1653,6 +1674,13 @@ function switchPage(id) {
 // DASHBOARD
 // ══════════════════════════════════════════════════════════════
 async function renderDash() {
+  if (CU.role === 'department') {
+    await renderDeptDash();
+    return;
+  }
+  // Admin / Maintenance dashboard
+  document.getElementById('dashAdmin').style.display = 'block';
+  document.getElementById('dashDept').style.display  = 'none';
   document.getElementById('dashStats').innerHTML = '<div class="loading"><div class="spin"></div><br>Loading…</div>';
   const { data: tickets } = await sb.from('tickets').select('*');
   if (!tickets) return;
@@ -1665,8 +1693,6 @@ async function renderDash() {
     <div class="sc"><div class="sc-num" style="color:var(--accent2)">${active}</div><div class="sc-lbl">Active</div></div>
     <div class="sc"><div class="sc-num" style="color:var(--green2)">${resolved}</div><div class="sc-lbl">Resolved</div></div>
     <div class="sc"><div class="sc-num" style="color:var(--red2)">${urgent}</div><div class="sc-lbl">Urgent</div></div>`;
-
-  // Weekly bars (last 7 days)
   const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const dayCounts=days.map((_,i)=>{
     const d=new Date(); d.setDate(d.getDate()-6+i);
@@ -1676,8 +1702,6 @@ async function renderDash() {
   const mx=Math.max(...dayCounts,1);
   document.getElementById('weekChart').innerHTML=dayCounts.map((v,i)=>`
     <div class="barcol"><div class="bar" style="height:${Math.round((v/mx)*70)}px;background:${v===mx?'var(--accent)':'var(--surface)'}"></div><div class="barlbl">${days[i]}</div></div>`).join('');
-
-  // Priority breakdown
   const pm={urgent:0,high:0,normal:0,low:0};
   tickets.filter(t=>t.status==='open'||t.status==='claimed'||t.status==='teamed').forEach(t=>pm[t.priority]=(pm[t.priority]||0)+1);
   const tot=Object.values(pm).reduce((a,b)=>a+b,0)||1;
@@ -1687,10 +1711,88 @@ async function renderDash() {
       <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:11px;text-transform:capitalize">${p}</span><span class="mono" style="font-size:11px;color:var(--text3)">${c}</span></div>
       <div class="prog-bar"><div class="prog-fill" style="width:${Math.round((c/tot)*100)}%;background:${pc[p]}"></div></div>
     </div>`).join('');
-
-  // Recent tickets
   const recent=[...tickets].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,4);
   document.getElementById('dashRecent').innerHTML=recent.length?recent.map(t=>tktCard(t)).join(''):'<div class="empty"><div class="empty-ico">🎫</div><p>No tickets yet.</p></div>';
+}
+
+// ── Department Dashboard ──────────────────────────────────────────────────
+async function renderDeptDash() {
+  document.getElementById('dashAdmin').style.display = 'none';
+  document.getElementById('dashDept').style.display  = 'block';
+
+  // Fetch only this dept's tickets
+  const { data: tickets } = await sb.from('tickets').select('*').eq('dept', CU.dept);
+  const all = tickets || [];
+
+  // KPIs
+  const total    = all.length;
+  const pending  = all.filter(t=>['open','claimed','teamed'].includes(t.status)).length;
+  const resolved = all.filter(t=>t.status==='resolved').length; // needs confirmation
+  const closed   = all.filter(t=>t.status==='closed').length;
+
+  // Greeting
+  const hour = new Date().getHours();
+  const greet = hour<12?'Magandang umaga ☀️':hour<18?'Magandang hapon ☀️':'Magandang gabi 🌙';
+  const initials = (CU.name||'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  document.getElementById('deptGreeting').innerHTML = `
+    <div class="greeting-card">
+      <div class="greeting-av" style="background:${CU.color||'#4f8ef7'}">${initials}</div>
+      <div>
+        <div class="greeting-name">${greet}, ${CU.name?.split(' ')[0]}!</div>
+        <div class="greeting-sub">${CU.dept} Department · ${total} total request${total!==1?'s':''}</div>
+      </div>
+    </div>`;
+
+  // KPI stats
+  document.getElementById('deptStats').innerHTML = `
+    <div class="sc"><div class="sc-num" style="color:var(--text)">${total}</div><div class="sc-lbl">Lahat</div></div>
+    <div class="sc"><div class="sc-num" style="color:var(--amber2)">${pending}</div><div class="sc-lbl">In Progress</div></div>
+    <div class="sc"><div class="sc-num" style="color:var(--red2)">${resolved}</div><div class="sc-lbl">Para Kumpirmahin</div></div>
+    <div class="sc"><div class="sc-num" style="color:var(--green2)">${closed}</div><div class="sc-lbl">Closed</div></div>`;
+
+  // Action Required — Pending Confirmation
+  const needsConfirm = all.filter(t=>t.status==='resolved');
+  if (needsConfirm.length) {
+    document.getElementById('deptActionRequired').innerHTML = `
+      <div style="background:rgba(79,142,247,.08);border:2px solid rgba(79,142,247,.3);border-radius:14px;padding:16px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <span style="font-size:20px;">🔔</span>
+          <div>
+            <div style="font-weight:800;font-size:14px;color:var(--accent2);">Kailangan ng Confirmation!</div>
+            <div style="font-size:12px;color:var(--text3);">${needsConfirm.length} ticket${needsConfirm.length>1?'s':''} na naghihintay sa iyong sagot</div>
+          </div>
+        </div>
+        ${needsConfirm.map(t=>`
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;">
+            <div style="font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;margin-bottom:3px;">${t.id}</div>
+            <div style="font-weight:700;font-size:14px;margin-bottom:3px;">${t.title}</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">📍 ${t.loc||'—'} · ${timeAgo(t.updated_at)}</div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="deptClose('${t.id}')" style="flex:1;background:var(--green);border:none;border-radius:8px;padding:10px;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;">✅ Oo, tapos na</button>
+              <button onclick="deptReopen('${t.id}')" style="flex:1;background:var(--red);border:none;border-radius:8px;padding:10px;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;">❌ Hindi pa</button>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  } else {
+    document.getElementById('deptActionRequired').innerHTML = '';
+  }
+
+  // Recent tickets — sorted by updated_at
+  const recent = [...all].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,5);
+  const statusLabel = {open:'📢 Open',claimed:'🔧 In Progress',teamed:'🤝 In Progress',resolved:'⏳ Para Kumpirmahin',closed:'✅ Closed'};
+  const statusColor = {open:'var(--amber2)',claimed:'var(--accent2)',teamed:'var(--accent2)',resolved:'var(--red2)',closed:'var(--green2)'};
+  const priorityBadge = {urgent:'🔴',high:'🟡',normal:'🔵',low:'⚪'};
+
+  document.getElementById('deptRecentTickets').innerHTML = recent.length ? recent.map(t=>`
+    <div onclick="openTkt('${t.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+      <div style="font-size:18px;flex-shrink:0;">${priorityBadge[t.priority]||'🔵'}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.title}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${t.id} · ${timeAgo(t.updated_at)}</div>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:${statusColor[t.status]||'var(--text2)'};flex-shrink:0;white-space:nowrap;">${statusLabel[t.status]||t.status}</div>
+    </div>`).join('') + '<div style="padding-top:8px;text-align:center;"><button class="btn btn-ghost btn-sm" onclick="switchPage('tickets')">Tingnan lahat →</button></div>'
+  : '<div class="empty"><div class="empty-ico">🎫</div><p>Wala ka pang mga request.</p><div style="margin-top:10px;"><button class="btn btn-primary btn-sm" onclick="openNewTkt()">＋ Mag-submit ng Request</button></div></div>';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2426,7 +2528,7 @@ async function deptClose(id) {
   toast('success','Ticket Closed','Thank you for confirming!');
   setTimeout(()=>toast('email','📧 Closure email sent',`Confirmation sent to ${t.email}`),600);
   closeM('tktModal');
-  renderTickets();
+  if (CU.role==='department') renderDeptDash(); else renderTickets();
   buildNav();
 }
 
@@ -2443,7 +2545,7 @@ async function deptReopen(id) {
   setTimeout(()=>toast('sms','📱 TextBee Blast','All maintenance staff re-notified'),500);
   setTimeout(()=>toast('email','📧 Email sent',`${t.dept} notified of reopen`),800);
   closeM('tktModal');
-  renderTickets();
+  if (CU.role==='department') renderDeptDash(); else renderTickets();
   buildNav();
 }
 
