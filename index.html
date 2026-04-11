@@ -1784,16 +1784,25 @@ async function renderDeptDash() {
   const statusColor = {open:'var(--amber2)',claimed:'var(--accent2)',teamed:'var(--accent2)',resolved:'var(--red2)',closed:'var(--green2)'};
   const priorityBadge = {urgent:'🔴',high:'🟡',normal:'🔵',low:'⚪'};
 
-  document.getElementById('deptRecentTickets').innerHTML = recent.length ? recent.map(t=>`
-    <div onclick="openTkt('${t.id}')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:.15s;" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-      <div style="font-size:18px;flex-shrink:0;">${priorityBadge[t.priority]||'🔵'}</div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.title}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px;">${t.id} · ${timeAgo(t.updated_at)}</div>
-      </div>
-      <div style="font-size:11px;font-weight:600;color:${statusColor[t.status]||'var(--text2)'};flex-shrink:0;white-space:nowrap;">${statusLabel[t.status]||t.status}</div>
-    </div>`).join('') + '<div style="padding-top:8px;text-align:center;"><button class="btn btn-ghost btn-sm" onclick="switchPage('tickets')">Tingnan lahat →</button></div>'
-  : '<div class="empty"><div class="empty-ico">🎫</div><p>Wala ka pang mga request.</p><div style="margin-top:10px;"><button class="btn btn-primary btn-sm" onclick="openNewTkt()">＋ Mag-submit ng Request</button></div></div>';
+  document.getElementById('deptRecentTickets').innerHTML = recent.length
+    ? recent.map(t=>{
+        const pBadge = priorityBadge[t.priority] || '🔵';
+        const sLabel = statusLabel[t.status] || t.status;
+        const sColor = statusColor[t.status] || 'var(--text2)';
+        return '<div onclick="openTkt(\''+t.id+'\')" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:.15s;">'
+          + '<div style="font-size:18px;flex-shrink:0;">'+pBadge+'</div>'
+          + '<div style="flex:1;min-width:0;">'
+          + '<div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+t.title+'</div>'
+          + '<div style="font-size:11px;color:var(--text3);margin-top:2px;">'+t.id+' · '+timeAgo(t.updated_at)+'</div>'
+          + '</div>'
+          + '<div style="font-size:11px;font-weight:600;color:'+sColor+';flex-shrink:0;white-space:nowrap;">'+sLabel+'</div>'
+          + '</div>';
+      }).join('')
+      + '<div style="padding-top:8px;text-align:center;">'
+      + '<button class="btn btn-ghost btn-sm" onclick="switchPage(\'tickets\')">Tingnan lahat →</button>'
+      + '</div>'
+    : '<div class="empty"><div class="empty-ico">🎫</div><p>Wala ka pang mga request.</p>'
+      + '<div style="margin-top:10px;"><button class="btn btn-primary btn-sm" onclick="openNewTkt()">＋ Mag-submit ng Request</button></div></div>';
 }
 
 // ══════════════════════════════════════════════════════════════
