@@ -1355,18 +1355,19 @@ async function doResetPassword() {
 }
 
 // Check URL for reset token on page load
-(function checkResetToken() {
+function checkResetToken() {
   const params = new URLSearchParams(window.location.search);
   const token  = params.get('reset');
-  if (!token) return;
+  if (!token) return false;
   window._resetToken = token;
-  // Show reset form
+  // Show reset form, hide others
   document.getElementById('loginForm').style.display  = 'none';
   document.getElementById('forgotForm').style.display  = 'none';
   document.getElementById('resetForm').style.display   = 'block';
-  // Clean URL
+  // Clean URL so token not visible after
   window.history.replaceState({}, document.title, window.location.pathname);
-})();
+  return true;
+}
 
 function showErr(msg) {
   const el = document.getElementById('loginErr');
@@ -3304,9 +3305,13 @@ function setPriority(val) {
   if (el) { el.value = val; showPriDesc(val); }
 }
 
+// Check for password reset token in URL first
+// If found, show reset form instead of login/session restore
+const hasResetToken = checkResetToken();
+
 // Attempt to restore saved session on page load
 // If no session found, the login page stays visible
-restoreSession();
+if (!hasResetToken) restoreSession();
 
 // Detect file:// protocol and show warning
 if (window.location.protocol === 'file:') {
