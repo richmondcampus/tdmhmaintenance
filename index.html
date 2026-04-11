@@ -1726,8 +1726,19 @@ async function renderDeptDash() {
   document.getElementById('dashAdmin').style.display = 'none';
   document.getElementById('dashDept').style.display  = 'block';
 
-  // Fetch only this dept's tickets
-  const { data: tickets } = await sb.from('tickets').select('*').eq('dept', CU.dept);
+  // Fetch only this dept's tickets — handle empty dept gracefully
+  const dept = CU.dept || '';
+  let ticketQuery = sb.from('tickets').select('*');
+  if (dept) {
+    ticketQuery = ticketQuery.eq('dept', dept);
+  } else {
+    // No dept set — show empty state
+    document.getElementById('deptStats').innerHTML = '<div style="color:var(--text3);font-size:13px;padding:12px;">Walang department na nakatakda sa iyong account. Makipag-ugnayan sa admin.</div>';
+    document.getElementById('deptActionRequired').innerHTML = '';
+    document.getElementById('deptRecentTickets').innerHTML = '<div class="empty"><div class="empty-ico">⚠️</div><p>Walang department ang iyong account.</p></div>';
+    return;
+  }
+  const { data: tickets } = await ticketQuery;
   const all = tickets || [];
 
   // KPIs
@@ -4035,7 +4046,7 @@ function toggleTheme() {
 
 // Apply saved theme immediately on load (before render to avoid flash)
 (function() {
-  const saved = localStorage.getItem('tdmh_theme') || 'dark';
+  const saved = localStorage.getItem('tdmh_theme') || 'light';
   applyTheme(saved);
 })();
 
