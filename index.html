@@ -779,10 +779,45 @@ textarea{resize:vertical;min-height:84px;}
       <h1>TDMH Maintenance Hub</h1>
       <p>Taytay Doctors Multispecialty Hospital · Authorized Personnel Only</p>
     </div>
-    <div class="fg"><label>Username</label><input type="text" id="loginUser" placeholder="Enter your username" autocomplete="username"></div>
-    <div class="fg"><label>Password</label><input type="password" id="loginPass" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
-    <div id="loginErr" style="font-size:12px;color:var(--red2);margin-bottom:12px;display:none;padding:8px 10px;background:rgba(240,78,78,.08);border-radius:6px;border:1px solid rgba(240,78,78,.2);"></div>
-    <button class="btn btn-primary btn-full" id="loginBtn" onclick="doLogin()">Sign In →</button>
+
+    <!-- Login form -->
+    <div id="loginForm">
+      <div class="fg"><label>Username</label><input type="text" id="loginUser" placeholder="Enter your username" autocomplete="username"></div>
+      <div class="fg"><label>Password</label><input type="password" id="loginPass" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+      <div id="loginErr" style="font-size:12px;color:var(--red2);margin-bottom:12px;display:none;padding:8px 10px;background:rgba(240,78,78,.08);border-radius:6px;border:1px solid rgba(240,78,78,.2);"></div>
+      <button class="btn btn-primary btn-full" id="loginBtn" onclick="doLogin()">Sign In →</button>
+      <div style="text-align:center;margin-top:12px;">
+        <button onclick="showForgotPassword()" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:inherit;text-decoration:underline;">Nakalimutan ang password?</button>
+      </div>
+    </div>
+
+    <!-- Forgot password form -->
+    <div id="forgotForm" style="display:none;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:28px;margin-bottom:8px;">🔐</div>
+        <div style="font-weight:700;font-size:15px;">Reset Password</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px;">I-enter ang iyong username — magpapadala kami ng reset link sa iyong email.</div>
+      </div>
+      <div class="fg"><label>Username</label><input type="text" id="forgotUser" placeholder="Enter your username" autocomplete="username"></div>
+      <div id="forgotMsg" style="font-size:12px;margin-bottom:12px;display:none;padding:8px 10px;border-radius:6px;border:1px solid;"></div>
+      <button class="btn btn-primary btn-full" id="forgotBtn" onclick="doForgotPassword()">📧 Send Reset Link</button>
+      <div style="text-align:center;margin-top:12px;">
+        <button onclick="showLoginForm()" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:inherit;text-decoration:underline;">← Bumalik sa Sign In</button>
+      </div>
+    </div>
+
+    <!-- Reset password form (from email link) -->
+    <div id="resetForm" style="display:none;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:28px;margin-bottom:8px;">🔑</div>
+        <div style="font-weight:700;font-size:15px;">Mag-set ng Bagong Password</div>
+      </div>
+      <div class="fg"><label>Bagong Password</label><input type="password" id="resetPass" placeholder="Minimum 6 characters" autocomplete="new-password"></div>
+      <div class="fg"><label>Kumpirmahin</label><input type="password" id="resetPass2" placeholder="Ulitin ang password" autocomplete="new-password" onkeydown="if(event.key==='Enter')doResetPassword()"></div>
+      <div id="resetMsg" style="font-size:12px;margin-bottom:12px;display:none;padding:8px 10px;border-radius:6px;border:1px solid;"></div>
+      <button class="btn btn-primary btn-full" id="resetBtn" onclick="doResetPassword()">✅ I-save ang Bagong Password</button>
+    </div>
+
   </div>
 </div>
 </div>
@@ -1172,17 +1207,18 @@ async function doLogin() {
   if (!username || !password) { showErr('Please enter your username and password.'); return; }
   btn.disabled = true; btn.textContent = 'Signing in…';
   try {
-    const { data, error } = await sb.from('users').select('*').eq('username', username).single();
-    if (error || !data) { showErr('Username not found.'); return; }
-    if (data.password !== password) { showErr('Incorrect password.'); return; }
+    // Use bcrypt-verified login via DB function (same as VTS)
+    const { data, error } = await sb.rpc('verify_user_password', { p_username: username, p_password: password });
+    if (error) { showErr('Connection error. Please try again.'); console.error(error); return; }
+    if (!data || data.length === 0) { showErr('Maling username o password.'); return; }
+    const user = data[0];
     // Only allow admin, maintenance, department roles
     const allowed = ['admin','maintenance','department'];
-    if (!allowed.includes(data.role)) { showErr('Your account does not have access to this system.'); return; }
+    if (!allowed.includes(user.role)) { showErr('Walang access ang iyong account sa system na ito.'); return; }
 
-    CU = data;
-    // Save session to localStorage — stays across refreshes and device restarts
-    // We only store non-sensitive fields (no password)
-    const session = { id:data.id, name:data.name, username:data.username, role:data.role, dept:data.dept, spec:data.spec, color:data.color, email:data.email };
+    CU = user;
+    // Save session — no password stored
+    const session = { id:user.id, name:user.name, username:user.username, role:user.role, dept:user.dept, spec:user.spec, color:user.color, email:user.email };
     localStorage.setItem('tdmh_session', JSON.stringify(session));
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
@@ -1194,6 +1230,122 @@ async function doLogin() {
     btn.disabled = false; btn.textContent = 'Sign In →';
   }
 }
+
+function showForgotPassword() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('forgotForm').style.display = 'block';
+  document.getElementById('resetForm').style.display = 'none';
+  document.getElementById('forgotUser').focus();
+}
+
+function showLoginForm() {
+  document.getElementById('loginForm').style.display = 'block';
+  document.getElementById('forgotForm').style.display = 'none';
+  document.getElementById('resetForm').style.display = 'none';
+}
+
+function showForgotMsg(msg, isError=false) {
+  const el = document.getElementById('forgotMsg');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.color = isError ? 'var(--red2)' : 'var(--green2)';
+  el.style.background = isError ? 'rgba(240,78,78,.08)' : 'rgba(16,217,139,.08)';
+  el.style.borderColor = isError ? 'rgba(240,78,78,.2)' : 'rgba(16,217,139,.2)';
+}
+
+function showResetMsg(msg, isError=false) {
+  const el = document.getElementById('resetMsg');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.color = isError ? 'var(--red2)' : 'var(--green2)';
+  el.style.background = isError ? 'rgba(240,78,78,.08)' : 'rgba(16,217,139,.08)';
+  el.style.borderColor = isError ? 'rgba(240,78,78,.2)' : 'rgba(16,217,139,.2)';
+}
+
+async function doForgotPassword() {
+  const username = document.getElementById('forgotUser').value.trim();
+  const btn = document.getElementById('forgotBtn');
+  document.getElementById('forgotMsg').style.display = 'none';
+
+  if (!username) { showForgotMsg('Pakienter ang iyong username.', true); return; }
+
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const { data, error } = await sb.rpc('request_password_reset', { p_username: username });
+    if (error) { showForgotMsg('Error: ' + error.message, true); return; }
+    if (!data || data.length === 0) {
+      // Don't reveal if user exists — generic message
+      showForgotMsg('Kung tama ang username at may email ang account, makakatanggap ka ng reset link. Pakitingnan ang iyong email.', false);
+      return;
+    }
+
+    const row = data[0];
+    const resetUrl = window.location.origin + window.location.pathname + '?reset=' + row.token;
+
+    // Send email via edge function
+    await fetch('https://niqfgtvzibigpdlzsrxt.supabase.co/functions/v1/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pcWZndHZ6aWJpZ3BkbHpzcnh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNjYxNDcsImV4cCI6MjA4OTc0MjE0N30.-P1bzXTTbEcupI_g17IF8hZKA-KF9KR3tXC_I3TmG0U' },
+      body: JSON.stringify({
+        type: 'forgot_password',
+        to: row.email,
+        ticket: { name: row.name, username: row.username, reset_url: resetUrl }
+      })
+    });
+
+    showForgotMsg('✅ Napadala na ang reset link sa iyong email! Valid ito sa loob ng 30 minuto.', false);
+    btn.textContent = '✅ Sent!';
+  } catch(e) {
+    showForgotMsg('Connection error. Please try again.', true);
+    console.error(e);
+    btn.disabled = false; btn.textContent = '📧 Send Reset Link';
+  }
+}
+
+async function doResetPassword() {
+  const token   = window._resetToken;
+  const pass1   = document.getElementById('resetPass').value;
+  const pass2   = document.getElementById('resetPass2').value;
+  const btn     = document.getElementById('resetBtn');
+  document.getElementById('resetMsg').style.display = 'none';
+
+  if (!pass1) { showResetMsg('Pakienter ang bagong password.', true); return; }
+  if (pass1.length < 6) { showResetMsg('Minimum 6 characters ang password.', true); return; }
+  if (pass1 !== pass2)  { showResetMsg('Hindi tugma ang mga password.', true); return; }
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const { data, error } = await sb.rpc('confirm_password_reset', { p_token: token, p_new_password: pass1 });
+    if (error) { showResetMsg('Error: ' + error.message, true); btn.disabled=false; btn.textContent='✅ I-save'; return; }
+    if (!data) { showResetMsg('Expired o invalid ang reset link. Humingi ng bago.', true); btn.disabled=false; btn.textContent='✅ I-save'; return; }
+
+    showResetMsg('✅ Na-update na ang password! Puwede ka nang mag-login.', false);
+    btn.textContent = '✅ Done!';
+    // Clear token from URL and redirect to login after 2s
+    setTimeout(() => {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      window._resetToken = null;
+      showLoginForm();
+    }, 2000);
+  } catch(e) {
+    showResetMsg('Connection error. Please try again.', true);
+    btn.disabled = false; btn.textContent = '✅ I-save ang Bagong Password';
+  }
+}
+
+// Check URL for reset token on page load
+(function checkResetToken() {
+  const params = new URLSearchParams(window.location.search);
+  const token  = params.get('reset');
+  if (!token) return;
+  window._resetToken = token;
+  // Show reset form
+  document.getElementById('loginForm').style.display  = 'none';
+  document.getElementById('forgotForm').style.display  = 'none';
+  document.getElementById('resetForm').style.display   = 'block';
+  // Clean URL
+  window.history.replaceState({}, document.title, window.location.pathname);
+})();
 
 function showErr(msg) {
   const el = document.getElementById('loginErr');
@@ -2587,8 +2739,10 @@ async function addMember() {
   } else {
     userData.dept=document.getElementById('am-dept').value;
   }
-  const {error}=await sb.from('users').insert(userData);
+  const {data:inserted,error}=await sb.from('users').insert(userData).select('id').single();
   if (error){toast('error','Error',error.message.includes('unique')?'Username already taken.':error.message);btn.disabled=false;btn.textContent='Add Member';return;}
+  // Hash the password via bcrypt RPC
+  if (inserted?.id) await sb.rpc('change_user_password', { p_id: inserted.id, p_new_password: password });
   // Reload users cache
   const {data:users}=await sb.from('users').select('*').eq('role','maintenance');
   if(users){MAINT_MEMBERS=users;users.forEach(u=>{ALL_USERS[u.id]=u;});}
@@ -3454,11 +3608,12 @@ async function submitChangePass() {
   }
 
   btn.disabled = true; btn.textContent = 'Updating…';
-  const { error } = await sb.from('users').update({ password: newPass }).eq('id', targetId);
+  // Use bcrypt hashing via DB function
+  const { error } = await sb.rpc('change_user_password', { p_id: targetId, p_new_password: newPass });
   if (error) { showCpErr('Error: ' + error.message); btn.disabled=false; btn.textContent='Update Password'; return; }
 
-  // Update local cache if own password changed
-  if (isSelf) CU.password = newPass;
+  // Update local cache if own password changed (don't store actual password)
+  if (isSelf) delete CU.password;
   btn.disabled = false; btn.textContent = 'Update Password';
   closeM('changePassModal');
   toast('success', '🔐 Password Updated', isSelf ? 'Your password has been changed.' : `Password reset for ${ALL_USERS[targetId]?.name||'user'}`);
@@ -3525,12 +3680,17 @@ async function submitEditUser() {
   }
   if (newPass) {
     if (newPass.length < 6) { errEl.textContent='Password must be at least 6 characters.'; errEl.style.display='block'; return; }
-    upd.password = newPass;
+    // Don't include password in upd — handle separately via bcrypt RPC
   }
 
   btn.disabled = true; btn.textContent = 'Saving…';
   const { error } = await sb.from('users').update(upd).eq('id', editingUserId);
   if (error) { errEl.textContent = error.message.includes('unique') ? 'Username already taken.' : error.message; errEl.style.display='block'; btn.disabled=false; btn.textContent='Save Changes'; return; }
+
+  // Update password via bcrypt if provided
+  if (newPass) {
+    await sb.rpc('change_user_password', { p_id: editingUserId, p_new_password: newPass });
+  }
 
   // Refresh caches
   const { data: users } = await sb.from('users').select('*');
