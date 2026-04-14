@@ -181,6 +181,7 @@ html,body{
 .rbadge.admin{background:rgba(0,212,200,.15);color:var(--accent2);}
 .rbadge.maintenance{background:rgba(16,217,139,.15);color:var(--green2);}
 .rbadge.department{background:rgba(245,166,35,.15);color:var(--amber2);}
+.rbadge.viewer{background:rgba(99,102,241,.15);color:#818cf8;}
 /* Hide role badge on department users to save space — role is obvious */
 @media(min-width:640px){.rbadge.department{display:none;}}
 
@@ -1222,6 +1223,8 @@ textarea{resize:vertical;min-height:84px;}
       <select id="am-role" onchange="toggleMemberFields()">
         <option value="maintenance">🔧 Maintenance Staff</option>
         <option value="department">🏢 Department Account</option>
+        <option value="admin">🛡️ Admin</option>
+        <option value="viewer">👁️ Viewer (Owner)</option>
       </select>
     </div>
     <div id="maint-fields">
@@ -1802,6 +1805,7 @@ function buildNav() {
   let tabs = [];
   if (role==='admin')       tabs=[{id:'dashboard',lbl:'📊',name:'Dashboard'},{id:'tickets',lbl:'🎫',name:'Tickets'},{id:'team',lbl:'👷',name:'Team'},{id:'analytics',lbl:'📈',name:'Analytics'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
   else if (role==='maintenance') tabs=[{id:'mytickets',lbl:'🔧',name:'My Tickets'},{id:'tickets',lbl:'🎫',name:'All Tickets'},{id:'analytics',lbl:'📈',name:'My Stats'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
+  else if (role==='viewer') tabs=[{id:'dashboard',lbl:'📊',name:'Dashboard'},{id:'tickets',lbl:'🎫',name:'All Tickets'},{id:'analytics',lbl:'📈',name:'Analytics'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
   else tabs=[{id:'dashboard',lbl:'🏠',name:'Dashboard'},{id:'tickets',lbl:'🎫',name:'My Requests'},{id:'notifs',lbl:'🔔',name:'Alerts'}];
 
   // TICKETS is loaded async from Supabase — safe fallback to 0
@@ -1830,7 +1834,7 @@ function buildNav() {
   if (document.getElementById('addMbrBtn')) document.getElementById('addMbrBtn').style.display = role==='admin'?'inline-flex':'none';
   if (document.getElementById('testSmsBtn')) document.getElementById('testSmsBtn').style.display = role==='admin'?'inline-flex':'none';
   if (document.getElementById('slaBtn')) document.getElementById('slaBtn').style.display = role==='admin'?'inline-flex':'none';
-  document.getElementById('ticketsHeading').textContent = role==='department'?`My Requests — ${CU.dept}`:'All Tickets';
+  document.getElementById('ticketsHeading').textContent = role==='department'?`My Requests — ${CU.dept}`:role==='viewer'?'All Tickets (View Only)':'All Tickets';
 }
 
 function switchPage(id) {
@@ -2017,6 +2021,7 @@ async function renderTickets() {
   document.getElementById('ticketList').innerHTML='<div class="loading"><div class="spin"></div><br>Loading…</div>';
   let query = sb.from('tickets').select('*');
   if (CU.role==='department') query=query.eq('dept',CU.dept);
+  // viewer sees all tickets — same as admin, no filter
   const {data:tickets}=await query;
   if (!tickets){document.getElementById('ticketList').innerHTML='<div class="empty"><div class="empty-ico">⚠️</div><p>Error loading tickets.</p></div>';return;}
   // Update open count for nav badge
@@ -3043,6 +3048,7 @@ function toggleMemberFields(){
   const role=document.getElementById('am-role').value;
   document.getElementById('maint-fields').style.display=role==='maintenance'?'block':'none';
   document.getElementById('dept-fields').style.display=role==='department'?'block':'none';
+  // admin and viewer — no extra fields needed
 }
 
 async function addMember() {
@@ -4547,8 +4553,7 @@ if (window.matchMedia('(display-mode: standalone)').matches) {
         <option value="admin">🛡️ Admin</option>
         <option value="maintenance">🔧 Maintenance</option>
         <option value="department">🏢 Department</option>
-        <option value="editor">✏️ Editor</option>
-        <option value="viewer">👁️ Viewer</option>
+        <option value="viewer">👁️ Viewer (Owner)</option>
       </select>
     </div>
     <div id="eu-maint-fields">
