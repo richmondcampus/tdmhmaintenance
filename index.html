@@ -1540,7 +1540,7 @@ function showErr(msg) {
   el.textContent = msg; el.style.display = 'block';
 }
 
-function doLogout() {
+async function doLogout() {
   // Close ALL open overlays and modals first
   document.querySelectorAll('.overlay.open, .tut-overlay.open').forEach(o => o.classList.remove('open'));
   // Remove dynamically created help modal if open
@@ -1551,12 +1551,13 @@ function doLogout() {
   if (fab) fab.style.display = 'none';
   // Stop realtime subscriptions
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
-  CU = null; MAINT_MEMBERS = []; NOTIFS = []; ALL_USERS = {};
-  // Clear session token in DB — prevents the old session from being restored
+  // Clear session token BEFORE nulling CU
   if (CU?.id) {
-    await sb.from('users').update({ session_token: null }).eq('id', CU.id);
+    try {
+      await sb.from('users').update({ session_token: null, online_status: 'offline' }).eq('id', CU.id);
+    } catch(e) {}
   }
-  setOnlineStatus('offline');
+  CU = null; MAINT_MEMBERS = []; NOTIFS = []; ALL_USERS = {};
   localStorage.removeItem('tdmh_session');
   document.getElementById('app').style.display = 'none';
   document.getElementById('loginPage').style.display = 'block';
