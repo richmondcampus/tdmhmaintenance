@@ -1144,6 +1144,17 @@ textarea{resize:vertical;min-height:84px;}
         <div class="card-head"><div class="card-title">🕐 SLA Compliance</div><div class="card-sub">Ilang ticket ang natapos sa loob ng SLA</div></div>
         <div id="slaCompliance"></div>
       </div>
+
+      <!-- Response SLA — open/active tickets -->
+      <div class="card" id="slaResponseCard">
+        <div class="card-head">
+          <div>
+            <div class="card-title">⏳ Response SLA — Open Tickets</div>
+            <div class="card-sub">Gaano kabilis naku-claim ang bawat ticket</div>
+          </div>
+        </div>
+        <div id="slaResponse"></div>
+      </div>
     </div>
 
     <!-- NOTIFICATIONS -->
@@ -3467,6 +3478,81 @@ async function renderAnalytics() {
           </div>
         </div>`
     }`;
+
+  // ── Response SLA — Open/Active Tickets ───────────────────────────────
+  // Shows how long each unclaimed ticket has been waiting vs SLA respond_min
+  const openActive = allTickets.filter(t =>
+    t.status === 'open' || t.status === 'claimed' || t.status === 'teamed'
+  );
+
+  const respRows = openActive.map(t => {
+    const cfg = slaConfig[t.priority] || slaConfig.normal;
+    const respondMin = cfg ? cfg.respond : 60;
+    const start = parseSLADate(t.created_at);
+    if (!start) return null;
+    const now = Date.now();
+    const elapsedMin = (now - start) / 60000;
+    const isClaimed = t.status === 'claimed' || t.status === 'teamed';
+    const pct = Math.min(Math.round((elapsedMin / respondMin) * 100), 100);
+    const breached = !isClaimed && elapsedMin > respondMin;
+    const approaching = !isClaimed && elapsedMin > respondMin * 0.75;
+    const statusIcon = isClaimed ? '✅' : breached ? '🔴' : approaching ? '⚠️' : '🟢';
+    const statusColor = isClaimed ? 'var(--green2)' : breached ? 'var(--red2)' : approaching ? 'var(--amber2)' : 'var(--text3)';
+    const statusText = isClaimed
+      ? (t.status === 'teamed' ? 'Teamed Up' : 'Claimed')
+      : breached
+      ? 'BREACH — ' + fmtDuration((elapsedMin - respondMin) * 60000) + ' late'
+      : 'Waiting — ' + fmtDuration(elapsedMin * 60000);
+    return { t, respondMin, elapsedMin, isClaimed, pct, breached, approaching, statusIcon, statusColor, statusText };
+  }).filter(Boolean);
+
+  const elRsp = document.getElementById('slaResponse');
+  if (!elRsp) return;
+
+  if (!respRows.length) {
+    elRsp.innerHTML = '<div class="empty" style="padding:20px 0;"><div class="empty-ico">🎉</div><p style="font-size:13px;">Walang open tickets ngayon!</p></div>';
+    return;
+  }
+
+  const breachedCount  = respRows.filter(r => r.breached).length;
+  const approachCount  = respRows.filter(r => r.approaching && !r.breached).length;
+  const claimedCount   = respRows.filter(r => r.isClaimed).length;
+  const waitingCount   = respRows.filter(r => !r.isClaimed && !r.breached && !r.approaching).length;
+
+  // Summary chips
+  const chips = [
+    claimedCount   ? `<span style="background:rgba(16,217,139,.12);color:var(--green2);border:1px solid rgba(16,217,139,.25);border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">✅ ${claimedCount} Claimed</span>` : '',
+    waitingCount   ? `<span style="background:rgba(99,143,255,.10);color:var(--accent2);border:1px solid rgba(99,143,255,.2);border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">🟢 ${waitingCount} Waiting</span>` : '',
+    approachCount  ? `<span style="background:rgba(245,166,35,.12);color:var(--amber2);border:1px solid rgba(245,166,35,.25);border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">⚠️ ${approachCount} Malapit</span>` : '',
+    breachedCount  ? `<span style="background:rgba(255,71,87,.10);color:var(--red2);border:1px solid rgba(255,71,87,.2);border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">🔴 ${breachedCount} Breach</span>` : '',
+  ].filter(Boolean).join('');
+
+  // Sort: breached first, then approaching, then waiting, then claimed
+  respRows.sort((a,b) => {
+    const rank = r => r.breached ? 0 : r.approaching ? 1 : !r.isClaimed ? 2 : 3;
+    return rank(a) - rank(b) || b.elapsedMin - a.elapsedMin;
+  });
+
+  elRsp.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">${chips}</div>
+    <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;">
+      Bawat Open/Active Ticket vs Response SLA
+    </div>
+    ${respRows.map(r => `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+          <span class="badge b-${r.t.priority}" style="font-size:9px;">${r.t.priority.toUpperCase()}</span>
+          <span style="flex:1;font-size:12px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.t.title}</span>
+          <span style="font-size:11px;color:${r.statusColor};font-weight:700;flex-shrink:0;">${r.statusIcon} ${r.statusText}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="prog-bar" style="height:5px;flex:1;">
+            <div class="prog-fill" style="width:${r.pct}%;background:${r.breached?'var(--red)':r.approaching?'var(--amber)':r.isClaimed?'var(--green)':'var(--accent)'};border-radius:3px;transition:width .3s;"></div>
+          </div>
+          <span class="mono" style="font-size:10px;color:var(--text3);flex-shrink:0;">Respond SLA: ${fmtSLALimit(r.respondMin)}</span>
+        </div>
+      </div>`).join('')}
+  `;
 }
 
 // ══════════════════════════════════════════════════════════════
