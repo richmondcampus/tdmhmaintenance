@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="TDMH Maint">
-<meta name="theme-color" content="#080c12">
+<meta name="theme-color" content="#f0f4ff">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="manifest" href="manifest.json">
@@ -990,6 +990,19 @@ textarea{resize:vertical;min-height:84px;}
           <button class="btn btn-ghost btn-sm" id="addMbrBtn" onclick="openAddMbr()" style="display:none">＋ Add Member</button>
         </div>
       </div>
+
+      <!-- Departments Management Card (admin only) -->
+      <div class="card" id="deptMgmtCard" style="display:none;margin-bottom:14px;">
+        <div class="card-head">
+          <div>
+            <div class="card-title">🏥 Departments</div>
+            <div class="card-sub">I-manage ang listahan ng mga department</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openAddDept()">＋ Add</button>
+        </div>
+        <div id="deptList" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
       <!-- Search + Filter bar -->
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:180px;position:relative;">
@@ -1014,6 +1027,22 @@ textarea{resize:vertical;min-height:84px;}
         <div id="teamCount" style="padding:8px 10px;font-size:12px;color:var(--text3);align-self:center;flex-shrink:0;"></div>
       </div>
       <div id="teamGrid"></div>
+    </div>
+
+    <!-- Add/Edit Department Modal -->
+    <div class="overlay" id="deptModal">
+      <div class="modal" style="max-width:360px;">
+        <div style="font-weight:800;font-size:16px;margin-bottom:16px;" id="deptModalTitle">Add Department</div>
+        <div class="fg">
+          <label>Department Name</label>
+          <input type="text" id="deptNameInput" placeholder="e.g. Radiology" maxlength="60">
+        </div>
+        <div id="deptModalErr" style="font-size:12px;color:var(--red2);margin-bottom:10px;display:none;padding:8px 10px;background:rgba(220,38,38,.08);border-radius:6px;border:1px solid rgba(220,38,38,.2);"></div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn btn-ghost" style="flex:1;" onclick="closeM('deptModal')">Cancel</button>
+          <button class="btn btn-primary" style="flex:1;" id="deptSaveBtn" onclick="saveDept()">Save</button>
+        </div>
+      </div>
     </div>
 
     <!-- ANALYTICS -->
@@ -1132,7 +1161,7 @@ textarea{resize:vertical;min-height:84px;}
       <div><div class="modal-title">Submit Maintenance Request</div><div class="modal-sub">All maintenance staff will be notified via SMS immediately</div></div>
       <button class="x-btn" onclick="closeM('newTktModal')">✕</button>
     </div>
-    <div class="fg"><label>Issue Title *</label><input id="nt-title" placeholder="e.g. AC not cooling in Ward 3"></div>
+    <div class="fg"><label>Issue Title *</label><input id="nt-title" placeholder="e.g. AC not cooling in Ward 3" maxlength="120"></div>
     <div class="g2">
       <div class="fg"><label>Category</label>
         <select id="nt-cat">
@@ -1154,7 +1183,7 @@ textarea{resize:vertical;min-height:84px;}
         </div>
       </div>
     </div>
-    <div class="fg"><label>Location / Room No.</label><input id="nt-loc" placeholder="e.g. 3rd Floor, Room 312"></div>
+    <div class="fg"><label>Location / Room No.</label><input id="nt-loc" placeholder="e.g. 3rd Floor, Room 312" maxlength="80"></div>
     <div class="fg"><label>Description</label><textarea id="nt-desc" placeholder="Describe the issue in detail…"></textarea></div>
     <div class="fg">
       <label>Contact Email <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(optional — leave blank to use your account email)</span></label>
@@ -1204,10 +1233,47 @@ textarea{resize:vertical;min-height:84px;}
     <div id="dept-fields" style="display:none;">
       <div class="fg"><label>Department Name</label>
         <select id="am-dept">
-          <option>Radiology</option><option>Emergency Room</option><option>ICU</option>
-          <option>Operating Room</option><option>Pharmacy</option><option>Laboratory</option>
-          <option>Ward 1</option><option>Ward 2</option><option>Ward 3</option>
-          <option>Administrative</option><option>Cafeteria</option><option>Physical Therapy</option>
+          <option value="">-- Piliin ang Department --</option>
+          <option>Accounting</option>
+          <option>Admin</option>
+          <option>Admitting</option>
+          <option>APE</option>
+          <option>Billing</option>
+          <option>Canteen</option>
+          <option>Cardio</option>
+          <option>Cashier</option>
+          <option>CQI</option>
+          <option>CSR</option>
+          <option>CT-Scan</option>
+          <option>EKONSULTA</option>
+          <option>ER</option>
+          <option>HMO</option>
+          <option>HOMES</option>
+          <option>HR</option>
+          <option>Information</option>
+          <option>Laboratory</option>
+          <option>Linen</option>
+          <option>Maintenance</option>
+          <option>Medical Records</option>
+          <option>NICU</option>
+          <option>NSO</option>
+          <option>OPD</option>
+          <option>OPD-Encoder</option>
+          <option>OPD-HMO</option>
+          <option>OPD-Screener</option>
+          <option>OR</option>
+          <option>Pharmacy</option>
+          <option>Philhealth</option>
+          <option>Purchasing</option>
+          <option>Releasing</option>
+          <option>Security</option>
+          <option>Social Service</option>
+          <option>Station 3</option>
+          <option>Station 4b</option>
+          <option>Station 5a</option>
+          <option>Station 5b</option>
+          <option>Ultrasound</option>
+          <option>Xray</option>
         </select>
       </div>
       <div class="fg"><label>Contact Email</label><input type="email" id="am-email" placeholder="dept@tdmh.com"></div>
@@ -1283,6 +1349,7 @@ let MAINT_MEMBERS = [];  // cached maintenance staff
 let NOTIFS = [];         // in-session notifications
 let ALL_USERS = {};      // id → user map for display
 let OPEN_COUNT = 0;      // cached open ticket count for nav badge
+let DEPARTMENTS = [];    // cached department list from DB
 let SLA_CONFIG = {       // minutes per priority — loaded from DB
   urgent: { respond:15,  arrive:30,   resolve:120  },
   high:   { respond:60,  arrive:120,  resolve:480  },
@@ -1293,6 +1360,9 @@ let SLA_CONFIG = {       // minutes per priority — loaded from DB
 // ══════════════════════════════════════════════════════════════
 // AUTH
 // ══════════════════════════════════════════════════════════════
+// Login rate limiting — max 5 attempts per 5 minutes
+const _loginAttempts = { count: 0, lockedUntil: 0 };
+
 async function doLogin() {
   const username = document.getElementById('loginUser').value.trim();
   const password = document.getElementById('loginPass').value;
@@ -1300,20 +1370,42 @@ async function doLogin() {
   const btn = document.getElementById('loginBtn');
   errEl.style.display = 'none';
   if (!username || !password) { showErr('Please enter your username and password.'); return; }
+  // Rate limit check
+  const now = Date.now();
+  if (_loginAttempts.lockedUntil > now) {
+    const secs = Math.ceil((_loginAttempts.lockedUntil - now) / 1000);
+    showErr('Too many failed attempts. Subukan muli pagkatapos ng ' + secs + ' segundo.');
+    return;
+  }
   btn.disabled = true; btn.textContent = 'Signing in…';
   try {
     // Use bcrypt-verified login via DB function (same as VTS)
     const { data, error } = await sb.rpc('verify_user_password', { p_username: username, p_password: password });
     if (error) { showErr('Connection error. Please try again.'); console.error(error); return; }
-    if (!data || data.length === 0) { showErr('Maling username o password.'); return; }
+    if (!data || data.length === 0) {
+      _loginAttempts.count++;
+      if (_loginAttempts.count >= 5) {
+        _loginAttempts.lockedUntil = Date.now() + 5 * 60 * 1000;
+        _loginAttempts.count = 0;
+        showErr('5 beses nang mali. I-lock ang login ng 5 minuto.');
+      } else {
+        showErr('Maling username o password. (' + _loginAttempts.count + '/5 attempts)');
+      }
+      return;
+    }
+    // Reset on success
+    _loginAttempts.count = 0; _loginAttempts.lockedUntil = 0;
     const user = data[0];
     // Only allow admin, maintenance, department roles
     const allowed = ['admin','maintenance','department'];
     if (!allowed.includes(user.role)) { showErr('Walang access ang iyong account sa system na ito.'); return; }
 
     CU = user;
+    // Generate unique session token — invalidates any other active session
+    const sessionToken = crypto.randomUUID();
+    await sb.from('users').update({ session_token: sessionToken }).eq('id', user.id);
     // Save session — no password stored
-    const session = { id:user.id, name:user.name, username:user.username, role:user.role, dept:user.dept, spec:user.spec, color:user.color, email:user.email };
+    const session = { id:user.id, name:user.name, username:user.username, role:user.role, dept:user.dept, spec:user.spec, color:user.color, email:user.email, session_token: sessionToken };
     localStorage.setItem('tdmh_session', JSON.stringify(session));
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
@@ -1460,6 +1552,10 @@ function doLogout() {
   // Stop realtime subscriptions
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   CU = null; MAINT_MEMBERS = []; NOTIFS = []; ALL_USERS = {};
+  // Clear session token in DB — prevents the old session from being restored
+  if (CU?.id) {
+    await sb.from('users').update({ session_token: null }).eq('id', CU.id);
+  }
   setOnlineStatus('offline');
   localStorage.removeItem('tdmh_session');
   document.getElementById('app').style.display = 'none';
@@ -1480,11 +1576,17 @@ async function restoreSession() {
   try { saved = JSON.parse(raw); } catch { localStorage.removeItem('tdmh_session'); return false; }
   if (!saved?.username) return false;
   try {
-    // Re-fetch fresh data from DB (catches password changes, role changes)
-    const { data, error } = await sb.from('users').select('*').eq('id', saved.id).single();
+    // Re-fetch fresh data from DB — also validates session token
+    const { data, error } = await sb.from('users').select('id,name,username,role,dept,phone,spec,color,online_status,avatar,email,session_token').eq('id', saved.id).single();
     if (error || !data) { localStorage.removeItem('tdmh_session'); return false; }
     const allowed = ['admin','maintenance','department'];
     if (!allowed.includes(data.role)) { localStorage.removeItem('tdmh_session'); return false; }
+    // Session token mismatch = logged in elsewhere, reject this session
+    if (saved.session_token && data.session_token !== saved.session_token) {
+      localStorage.removeItem('tdmh_session');
+      alert('Ang iyong account ay naka-login sa ibang device. Mag-login muli.');
+      return false;
+    }
     CU = data;
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
@@ -1512,10 +1614,11 @@ async function initApp() {
   document.getElementById('topName').textContent = CU.name.split(' ')[0];
   document.getElementById('topRole').textContent = CU.role.charAt(0).toUpperCase()+CU.role.slice(1);
   document.getElementById('topRole').className = 'rbadge '+CU.role;
-  // Load all users + SLA config in parallel
-  const [usersRes, slaRes] = await Promise.all([
+  // Load all users + SLA config + departments in parallel
+  const [usersRes, slaRes, deptRes] = await Promise.all([
     sb.from('users').select('id,name,username,role,dept,phone,spec,color,online_status'),
     sb.from('sla_config').select('*'),
+    sb.from('departments').select('id,name').order('name'),
   ]);
   if (usersRes.data) { usersRes.data.forEach(u=>{ ALL_USERS[u.id]=u; }); MAINT_MEMBERS = usersRes.data.filter(u=>u.role==='maintenance'); }
   if (slaRes.data) {
@@ -1523,8 +1626,13 @@ async function initApp() {
       SLA_CONFIG[r.priority] = { respond: r.respond_min, arrive: r.arrive_min, resolve: r.resolve_min };
     });
   }
+  if (deptRes.data) {
+    DEPARTMENTS = deptRes.data;
+    populateDeptDropdowns();
+  }
   buildNav();
   checkPendingAutoClose();
+  runAutoClose(); // DB-level auto-close for reliability
   updateNotifDot();
   // Set user as online
   setOnlineStatus('online');
@@ -1745,7 +1853,13 @@ function switchPage(id) {
     renderTickets();
   }
   if(id==='mytickets') renderMyTickets();
-  if(id==='team')      renderTeam();
+  if(id==='team') {
+    // Show dept management card for admin only
+    const deptCard = document.getElementById('deptMgmtCard');
+    if (deptCard) deptCard.style.display = CU.role==='admin' ? 'block' : 'none';
+    renderDeptList();
+    renderTeam();
+  }
   if(id==='analytics') renderAnalytics();
   if(id==='notifs')    renderNotifs();
 }
@@ -2650,6 +2764,7 @@ async function deptReopen(id) {
 }
 
 function scheduleAutoClose(id) {
+  // setTimeout fallback for current browser session only
   setTimeout(async()=>{
     const {data:t}=await sb.from('tickets').select('status').eq('id',id).single();
     if (!t||t.status!=='resolved') return;
@@ -2660,6 +2775,11 @@ function scheduleAutoClose(id) {
     toast('info','Auto-Closed',`${id} closed after 24h`);
     buildNav();
   }, 86400000);
+}
+
+// Run DB-level auto-close on app load — reliable even after page refresh
+async function runAutoClose() {
+  try { await sb.rpc('auto_close_resolved_tickets'); } catch(e) {}
 }
 
 async function checkPendingAutoClose() {
@@ -3615,6 +3735,107 @@ async function downloadReport() {
   toast('success','📄 Report Generated!','Mag-click ng Print → Save as PDF para i-save.');
 }
 
+// ══════════════════════════════════════════════════════════════
+// DEPARTMENT MANAGEMENT
+// ══════════════════════════════════════════════════════════════
+
+function populateDeptDropdowns() {
+  const options = '<option value="">-- Piliin ang Department --</option>'
+    + DEPARTMENTS.map(d => '<option value="'+d.name+'">'+d.name+'</option>').join('');
+  ['am-dept','eu-dept'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      const cur = el.value;
+      el.innerHTML = options;
+      if (cur) el.value = cur;
+    }
+  });
+}
+
+function renderDeptList() {
+  const el = document.getElementById('deptList');
+  if (!el) return;
+  if (!DEPARTMENTS.length) {
+    el.innerHTML = '<div style="font-size:13px;color:var(--text3);">Walang departments pa. I-click ang ＋ Add.</div>';
+    return;
+  }
+  el.innerHTML = DEPARTMENTS.map(d =>
+    '<div style="display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:5px 10px 5px 12px;font-size:12px;font-weight:600;">'
+    + d.name
+    + '<button onclick="editDept(\''+d.id+'\',\''+d.name.replace(/'/g,"\\'")+'\')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text3);padding:0 2px;" title="Edit">✏️</button>'
+    + '<button onclick="deleteDept(\''+d.id+'\',\''+d.name.replace(/'/g,"\\'")+'\')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--red2);padding:0 2px;" title="Delete">✕</button>'
+    + '</div>'
+  ).join('');
+}
+
+let _editingDeptId = null;
+
+function openAddDept() {
+  _editingDeptId = null;
+  document.getElementById('deptModalTitle').textContent = '＋ Add Department';
+  document.getElementById('deptNameInput').value = '';
+  document.getElementById('deptModalErr').style.display = 'none';
+  document.getElementById('deptSaveBtn').textContent = 'Add';
+  document.getElementById('deptModal').classList.add('open');
+  setTimeout(()=>document.getElementById('deptNameInput').focus(), 100);
+}
+
+function editDept(id, name) {
+  _editingDeptId = id;
+  document.getElementById('deptModalTitle').textContent = '✏️ Edit Department';
+  document.getElementById('deptNameInput').value = name;
+  document.getElementById('deptModalErr').style.display = 'none';
+  document.getElementById('deptSaveBtn').textContent = 'Save';
+  document.getElementById('deptModal').classList.add('open');
+  setTimeout(()=>document.getElementById('deptNameInput').focus(), 100);
+}
+
+async function saveDept() {
+  const name = document.getElementById('deptNameInput').value.trim();
+  const errEl = document.getElementById('deptModalErr');
+  const btn = document.getElementById('deptSaveBtn');
+  errEl.style.display = 'none';
+
+  if (!name) { errEl.textContent = 'Pakienter ang pangalan ng department.'; errEl.style.display='block'; return; }
+  if (name.length > 60) { errEl.textContent = 'Maximum 60 characters lang.'; errEl.style.display='block'; return; }
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  let error;
+  if (_editingDeptId) {
+    // Update
+    ({ error } = await sb.from('departments').update({ name }).eq('id', _editingDeptId));
+  } else {
+    // Insert
+    ({ error } = await sb.from('departments').insert({ name }));
+  }
+
+  btn.disabled = false; btn.textContent = _editingDeptId ? 'Save' : 'Add';
+
+  if (error) {
+    errEl.textContent = error.message.includes('unique') ? 'Mayroon nang department na may ganitong pangalan.' : error.message;
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Reload departments
+  const { data } = await sb.from('departments').select('id,name').order('name');
+  if (data) { DEPARTMENTS = data; populateDeptDropdowns(); renderDeptList(); }
+
+  closeM('deptModal');
+  toast('success', _editingDeptId ? '✏️ Department Updated' : '🏥 Department Added', name);
+}
+
+async function deleteDept(id, name) {
+  if (!confirm('I-delete ang "' + name + '"?\n\nHindi maaapektuhan ang mga existing na tickets.')) return;
+  const { error } = await sb.from('departments').delete().eq('id', id);
+  if (error) { toast('error', 'Error', error.message); return; }
+  DEPARTMENTS = DEPARTMENTS.filter(d => d.id !== id);
+  populateDeptDropdowns();
+  renderDeptList();
+  toast('info', '🗑️ Deleted', '"' + name + '" ay na-remove.');
+}
+
 function stLbl(s){return{open:'Open',claimed:'Claimed',teamed:'Teamed Up',resolved:'Pending Confirmation',closed:'Closed'}[s]||s;}
 
 // ── ONLINE STATUS ─────────────────────────────────────────────────────────
@@ -3640,7 +3861,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Heartbeat — update online every 2 minutes while active
-setInterval(() => {
+const _heartbeatInterval = setInterval(() => {
   if (CU && !document.hidden) setOnlineStatus('online');
 }, 120000);
 
@@ -3911,6 +4132,7 @@ async function submitEditUser() {
 
 async function deleteUser() {
   if (!editingUserId) return;
+  if (editingUserId === CU.id) { toast('error', 'Hindi Puwede', 'Hindi mo maaaring i-delete ang iyong sariling account.'); return; }
   const u = ALL_USERS[editingUserId];
   if (!confirm(`Delete ${u?.name}? This cannot be undone.`)) return;
   const { error } = await sb.from('users').delete().eq('id', editingUserId);
@@ -4112,7 +4334,7 @@ function applyTheme(theme) {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
   localStorage.setItem('tdmh_theme', next);
@@ -4337,10 +4559,47 @@ if (window.matchMedia('(display-mode: standalone)').matches) {
     <div id="eu-dept-fields" style="display:none;">
       <div class="fg"><label>Department</label>
         <select id="eu-dept">
-          <option>Radiology</option><option>Emergency Room</option><option>ICU</option>
-          <option>Operating Room</option><option>Pharmacy</option><option>Laboratory</option>
-          <option>Ward 1</option><option>Ward 2</option><option>Ward 3</option>
-          <option>Administrative</option><option>Cafeteria</option><option>Physical Therapy</option>
+          <option value="">-- Piliin ang Department --</option>
+          <option>Accounting</option>
+          <option>Admin</option>
+          <option>Admitting</option>
+          <option>APE</option>
+          <option>Billing</option>
+          <option>Canteen</option>
+          <option>Cardio</option>
+          <option>Cashier</option>
+          <option>CQI</option>
+          <option>CSR</option>
+          <option>CT-Scan</option>
+          <option>EKONSULTA</option>
+          <option>ER</option>
+          <option>HMO</option>
+          <option>HOMES</option>
+          <option>HR</option>
+          <option>Information</option>
+          <option>Laboratory</option>
+          <option>Linen</option>
+          <option>Maintenance</option>
+          <option>Medical Records</option>
+          <option>NICU</option>
+          <option>NSO</option>
+          <option>OPD</option>
+          <option>OPD-Encoder</option>
+          <option>OPD-HMO</option>
+          <option>OPD-Screener</option>
+          <option>OR</option>
+          <option>Pharmacy</option>
+          <option>Philhealth</option>
+          <option>Purchasing</option>
+          <option>Releasing</option>
+          <option>Security</option>
+          <option>Social Service</option>
+          <option>Station 3</option>
+          <option>Station 4b</option>
+          <option>Station 5a</option>
+          <option>Station 5b</option>
+          <option>Ultrasound</option>
+          <option>Xray</option>
         </select>
       </div>
     </div>
